@@ -3,7 +3,7 @@ import time
 import torch.backends.cudnn as cudnn
 import torch
 import torchvision
-import pytorch_msssim
+import ssim
 
 from torch import nn
 from torchinfo import summary
@@ -35,7 +35,7 @@ vgg_i = 3 # VGG_Loss maxpool index
 vgg_j = 3 # VGG_Loss conv index (in a block)
 vgg_alpha = 0.0 # Lerp mae with vgg loss
 loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
-loss_tp = 0
+loss_tp = 4
 
 ds_train = True # Set dataset to training mode (random crop position)
 batch_size = 8 # batch size
@@ -123,7 +123,7 @@ def main():
     elif(loss_fns[loss_tp] == 'sqrt'):
         criterion = SqrtLoss()
     elif(loss_fns[loss_tp] == 'ssim'):
-        criterion = pytorch_msssim.SSIM(win_size=11, win_sigma=1.5, data_range=1, size_average=True, channel=1, as_loss=True)
+        criterion = ssim.SSIM(in_channels=3, as_loss=True)
         criterion.to(device, memory_format=torch.channels_last)
     else:
         criterion = nn.MSELoss()

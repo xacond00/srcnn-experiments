@@ -24,7 +24,7 @@ unfreeze = False # Unfreeze all parameters
 test = False # Enable test mode (show output images)
 resnet = False
 base_model = None #"4x64vge_c5x2_c3x5.pth" #"4x_c5x96x2_c3x96x5.pth"   #"8x_c5x256x2_c3x256x5.pth" #"base/c5x64x2_c3x64x5.pth" #"c5x64x2_rc3x5c3_s3.pth"
-model_name = "srresnet.pth"#"4x64ssim_c5x2_c3x5.pth" #"c5x64x2_c3x64x5_ssim.pth"
+model_name = "4x64ssim_c5x2_c3x5.pth"#"4x64ssim_c5x2_c3x5.pth" #"c5x64x2_c3x64x5_ssim.pth"
 aux_name = "base/c5x4.pth"
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer
@@ -64,13 +64,13 @@ def main():
     # Initialize model or load checkpoint
     init_model = base_model if base_model and not test and checkpoint else model_name 
     if not checkpoint or not os.path.exists(init_model):
-        #if not resnet:
-        #    layers = [(nch,5), (nch,5), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3)]#ESPCNN
-        #else:
-        #    layers = [(nch,5), (nch,5), ('res',3), ('res',3), ('res',3), ('res',3), ('res',3), (nch, 3)] # Resnet
-        #last_layer = (last_ks, 'clip') if last_ks else None
-        model = SRResNet(9, 3, 64, 16, scaling_factor)
-        #model = SRCNN(layers, n_channels, ps_ks, scaling_factor, aux_name, "lrelu", last=last_layer)
+        if not resnet:
+            layers = [(nch,5), (nch,5), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3)]#ESPCNN
+        else:
+            layers = [(nch,5), (nch,5), ('res',3), ('res',3), ('res',3), ('res',3), ('res',3), (nch, 3)] # Resnet
+        last_layer = (last_ks, 'clip') if last_ks else None
+        #model = SRResNet(9, 3, 64, 16, scaling_factor)
+        model = SRCNN(layers, n_channels, ps_ks, scaling_factor, aux_name, "lrelu", last=last_layer)
 
         optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, model.parameters()),
                                      lr=lr)

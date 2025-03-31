@@ -126,7 +126,7 @@ class SSIM(nn.Module):
         return_msssim=False,
         padding=None,
         ensemble_kernel=True,
-        as_loss=True
+        as_loss=False
 
     ):
         """Calculate the mean SSIM (MSSIM) between two 4D tensors.
@@ -332,5 +332,6 @@ def ssim(
         return_msssim=return_msssim,
         padding=padding,
         ensemble_kernel=ensemble_kernel,
+
     ).to(device=x.device)
     return ssim_obj(x, y)

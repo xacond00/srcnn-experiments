@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 from torch import nn
 import torch
-import pytorch_ssim
+import pytorch_msssim
 from torch.amp import autocast, GradScaler
 from dataset import ImageDataset
 from utils import *
@@ -13,7 +13,10 @@ def compare_images(ds : ImageDataset, model : nn.Module, device, idx = 0, factor
     lr, hr = ds.load_img(idx, factor, 1, 1024, False)
     sr_in = lr.unsqueeze(0).to(device, memory_format=torch.channels_last)
     sr = model(sr_in).squeeze()
-    ssim = pytorch_ssim.ssim(sr.unsqueeze(0).to(device, memory_format=torch.channels_last), hr.unsqueeze(0).to(device,memory_format=torch.channels_last))
+    sr = torch.clip(sr, 0, 1)
+    x = sr.unsqueeze(0).to(device, memory_format=torch.channels_last)
+    y = hr.unsqueeze(0).to(device,memory_format=torch.channels_last)
+    ssim = pytorch_msssim.ssim(x, y, 1)
     sr = sr.permute(1, 2, 0).cpu().detach().numpy()
     lr = lr.permute(1, 2, 0).numpy()
     hr = hr.permute(1, 2, 0).numpy()

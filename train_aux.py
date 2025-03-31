@@ -3,7 +3,7 @@ import time
 import torch.backends.cudnn as cudnn
 import torch
 import torchvision
-import pytorch_ssim
+import pytorch_msssim
 from torch import nn
 from torchinfo import summary
 from layers import ShufConvLayer, SqrtLoss, ConvLayer
@@ -98,7 +98,7 @@ def main():
     elif(loss_fns[loss_tp] == 'sqrt'):
         criterion = SqrtLoss()
     elif(loss_fns[loss_tp] == 'ssim'):
-        criterion = pytorch_ssim.SSIM(window_size = 11)
+        criterion = pytorch_msssim.SSIM(win_size=11, win_sigma=1.5, data_range=1, size_average=True, channel=1, as_loss=True)
     else:
         criterion = nn.MSELoss()
     

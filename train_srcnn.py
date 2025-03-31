@@ -21,10 +21,10 @@ n_channels = 3  # number of channels in-between, i.e. the input and output chann
 # Learning parameters
 checkpoint = True  # Load checkpoint
 unfreeze = False # Unfreeze all parameters
-test = False # Enable test mode (show output images)
+test = True # Enable test mode (show output images)
 resnet = False
-base_model = None #"4x64vge_c5x2_c3x5.pth" #"4x_c5x96x2_c3x96x5.pth"   #"8x_c5x256x2_c3x256x5.pth" #"base/c5x64x2_c3x64x5.pth" #"c5x64x2_rc3x5c3_s3.pth"
-model_name = "4x64ssim_c5x2_c3x5.pth"#"4x64ssim_c5x2_c3x5.pth" #"c5x64x2_c3x64x5_ssim.pth"
+base_model = "4x64ssim_c5x2_c3x5.pth" #"4x64vge_c5x2_c3x5.pth" #"4x_c5x96x2_c3x96x5.pth"   #"8x_c5x256x2_c3x256x5.pth" #"base/c5x64x2_c3x64x5.pth" #"c5x64x2_rc3x5c3_s3.pth"
+model_name = "4x64ssae_c5x2_c3x5.pth"#"4x64ssim_c5x2_c3x5.pth" #"c5x64x2_c3x64x5_ssim.pth"
 aux_name = "base/c5x4.pth"
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer
@@ -34,14 +34,15 @@ freeze = False # Freeze the backbone when appending shuffle conv layer
 vgg_i = 3 # VGG_Loss maxpool index
 vgg_j = 3 # VGG_Loss conv index (in a block)
 vgg_alpha = 0.0 # Lerp mae with vgg loss
+ssim_alpha = 0.5  # Mix mae with vgg
 loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
 loss_tp = 4
 
 ds_train = True # Set dataset to training mode (random crop position)
 batch_size = 8 # batch size
 crop_size = 512
-pre_scale = 1
-lr = 1e-4  # learning rate
+pre_scale = 1   
+lr = 3e-5  # learning rate
 
 start_epoch = 0  # start at this epoch
 iterations = 2000  # number of training iterations
@@ -123,7 +124,7 @@ def main():
     elif(loss_fns[loss_tp] == 'sqrt'):
         criterion = SqrtLoss()
     elif(loss_fns[loss_tp] == 'ssim'):
-        criterion = ssim.SSIM(in_channels=3, as_loss=True)
+        criterion = ssim.SSIM(in_channels=3, as_loss=True, mae_alpha=ssim_alpha)
         criterion.to(device, memory_format=torch.channels_last)
     else:
         criterion = nn.MSELoss()

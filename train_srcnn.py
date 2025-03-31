@@ -15,36 +15,40 @@ from train import train, compare_images
 
 # Data parameters
 scaling_factor = 4  # the scaling factor for the generator; the input LR images will be downsampled from the target HR images by this factor
-kernel_size = 5
-pre_scale = 1
 n_channels = 3  # number of channels in-between, i.e. the input and output channels for the residual and subpixel convolutional blocks
-n_blocks = 16  # number of residual blocks
 
 # Learning parameters
 checkpoint = True  # Load checkpoint
-unfreeze = False
+unfreeze = False # Unfreeze all parameters
 test = True # Enable test mode (show output images)
 resnet = False
-ds_train = True # Set dataset to training mode (random crop position)
-base_model = None #"base/c5x64x2_c3x64x5_c3cl_maeu.pth" #"base_c5x64x2_rc3x4_c3_raw.pth" #"c5x64x2_c3x64x5_vgg.pth"
-model_name = "base/c5x64x2_c3x64x5_maeu.pth"
+base_model = None #"4x64vge_c5x2_c3x5.pth" #"4x_c5x96x2_c3x96x5.pth"   #"8x_c5x256x2_c3x256x5.pth" #"base/c5x64x2_c3x64x5.pth" #"c5x64x2_rc3x5c3_s3.pth"
+model_name = "4x64uvge_c5x2_c3x5.pth" #"c5x64x2_c3x64x5_ssim.pth"
 aux_name = "base/c5x4.pth"
+ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer
+nch = 64
+freeze = False # Freeze the backbone when appending shuffle conv layer
 
-vgg_i = 5 # VGG_Loss maxpool index
-vgg_j = 4 # VGG_Loss conv index (in a block)
-vgg_alpha = 0.2 # Lerp mae with vgg loss
+vgg_i = 3 # VGG_Loss maxpool index
+vgg_j = 3 # VGG_Loss conv index (in a block)
+vgg_alpha = 0.0 # Lerp mae with vgg loss
 loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
 loss_tp = 1
 
-batch_size = 16  # batch size
+ds_train = True # Set dataset to training mode (random crop position)
+batch_size = 8 # batch size
+crop_size = 384
+pre_scale = 1
+lr = 1e-4  # learning rate
+
 start_epoch = 0  # start at this epoch
 iterations = 2000  # number of training iterations
 workers = 8  # number of workers for loading data in the DataLoader
 print_freq = 1000  # print training status once every __ batches
-crop_size = 256
 test_crop = 1024 # Crop of test mode images
-lr = 1e-4  # learning rate
+valid_size = 8
+valid_crop = 384
 grad_clip = None  # clip if gradients are exploding
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 cudnn.benchmark = True
@@ -60,11 +64,11 @@ def main():
     init_model = base_model if base_model and not test and checkpoint else model_name 
     if not checkpoint or not os.path.exists(init_model):
         if not resnet:
-            layers = [(64,5), (64,5), (64,3), (64,3), (64,3), (64,3), (64,3)]#ESPCNN
+            layers = [(nch,5), (nch,5), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3)]#ESPCNN
         else:
-            layers = [(64,5), (64,5), ('res',3), ('res',3), ('res',3), ('res',3), (64, 3)] # Resnet
+            layers = [(nch,5), (nch,5), ('res',3), ('res',3), ('res',3), ('res',3), ('res',3), (nch, 3)] # Resnet
         last_layer = (last_ks, 'clip') if last_ks else None 
-        model = SRCNN(layers, n_channels, 3, scaling_factor, aux_name, "lrelu", last=last_layer)
+        model = SRCNN(layers, n_channels, ps_ks, scaling_factor, aux_name, "lrelu", last=last_layer)
 
         optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, model.parameters()),
                                      lr=lr)
@@ -74,8 +78,10 @@ def main():
         checkpoint = torch.load(init_model, weights_only=False)
         start_epoch = checkpoint['epoch'] + 1
         model = checkpoint['model']
-        if last_ks > 0:
-            freeze_model(model)
+
+        if last_ks > 0 and not hasattr(model, 'last_layer'):
+            if freeze:
+                freeze_model(model)
             model.last_layer = ConvLayer(3,3,last_ks,1,1,'clip')
             optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, model.parameters()),lr=lr)
         elif unfreeze:
@@ -94,11 +100,12 @@ def main():
     else:
         train_dataset = ImageDataset("DIV2K", ds_train, scaling_factor, pre_scale, crop_size)
     if(test):
-        for i in range(5):
-            compare_images(train_dataset, model, device, i + 105, scaling_factor)
+        for i in range(50):
+            compare_images(train_dataset, model, device, i + 20, scaling_factor)
             #c = input("Enter E to exit or enter to continue: ")
             #if(c == 'e'): break
         return
+    
     # Select loss function
     
     if(loss_fns[loss_tp] == 'vgg'):
@@ -120,6 +127,19 @@ def main():
     
     for g in optimizer.param_groups:
         g['lr'] = lr
+
+    # Validation batch
+    valid_x = []
+    valid_y = []
+    for idx in range(valid_size):
+        x, y = train_dataset.load_img(idx, scaling_factor, pre_scale, valid_crop, False)
+        valid_x.append(x)
+        valid_y.append(y)
+    if valid_size:
+        valid_x = torch.stack(valid_x).to(device, memory_format=torch.channels_last)
+        valid_y = torch.stack(valid_y).to(device, memory_format=torch.channels_last)
+        valid_ds = (valid_x, valid_y)
+    else: valid_ds = None
     # Custom dataloaders
     train_loader = torch.utils.data.DataLoader(train_dataset, drop_last=True, batch_size=batch_size, shuffle=True, num_workers=workers,
                                                pin_memory=True)  # note that we're passing the collate function here
@@ -137,7 +157,8 @@ def main():
               epoch=epoch,
               grad_clip=grad_clip,
               print_freq=print_freq,
-              device=device
+              device=device,
+              valid_ds=valid_ds
               )
 
         # Save checkpoint

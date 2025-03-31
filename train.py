@@ -38,7 +38,7 @@ def compare_images(ds : ImageDataset, model : nn.Module, device, idx = 0, factor
     plt.show()
     
 # Based on: https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Super-Resolution
-def train(train_loader, model, criterion, optimizer, epoch, grad_clip, print_freq, device):
+def train(train_loader, model, criterion, optimizer, epoch, grad_clip, print_freq, device, valid_ds = None):
     """
     One epoch's training with mixed precision, channels_last optimization, and performance improvements.
     """
@@ -85,13 +85,17 @@ def train(train_loader, model, criterion, optimizer, epoch, grad_clip, print_fre
 
         batch_time.update(time.time() - start)
         start = time.time()
+    if valid_ds:
+        model.eval()
+        val_loss = criterion(model(valid_ds[0]), valid_ds[1]).item()
 
     tally = (time.time() - tally)
     print(f'Epoch: [{epoch}]----'
         f'Batch Time ({batch_time.avg:.3f})----'
         f'Data Time ({data_time.avg:.3f})----'
         f'Time per iter ({tally:.3f})----'
-        f'Loss ({losses.avg:.4f})')
+        f'Loss ({losses.avg:.4f})----'
+        f'Val loss ({val_loss:.4f})')
 
     # Free memory
     del lr_imgs, hr_imgs, sr_imgs

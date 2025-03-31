@@ -11,7 +11,7 @@ class ClipLayer(nn.Module):
     def __init__(self):
         super(ClipLayer, self).__init__()
     def forward(self, input):
-        return torch.clamp(input, 0.0, 1.0)
+        return torch.clamp_(input, 0.0, 1.0)
 
 class ActivLayer(nn.Module):
     def __init__(self, activation="lrelu"):
@@ -24,9 +24,9 @@ class ActivLayer(nn.Module):
         if activation == 'prelu':
             self.operation = (nn.PReLU())
         elif activation == 'relu':
-            self.operation = (nn.ReLU())
+            self.operation = (nn.ReLU(True))
         elif activation == 'lrelu':
-            self.operation = (nn.LeakyReLU())
+            self.operation = (nn.LeakyReLU(inplace=True))
         elif activation == 'prelu_ch':
             self.operation = (nn.PReLU(out_channels))
         elif activation == 'tanh':
@@ -74,9 +74,7 @@ class ConvLayer(nn.Module):
         self.conv_block = nn.Sequential(*layers)
 
     def forward(self, input):
-        output = self.conv_block(input)  # (N, out_channels, w, h)
-
-        return output
+        return self.conv_block(input)  # (N, out_channels, w, h)
 
 class ResLayer(nn.Module):
     def __init__(self, kernel_size=3, n_channels=64, batch_norm = False):
@@ -93,7 +91,7 @@ class ResLayer(nn.Module):
         residual = input  # (N, n_channels, w, h)
         output = self.conv_block1(input)  # (N, n_channels, w, h)
         output = self.conv_block2(output)  # (N, n_channels, w, h)
-        output = output + residual  # (N, n_channels, w, h)
+        output += residual  # (N, n_channels, w, h)
 
         return output
 

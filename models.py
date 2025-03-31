@@ -150,7 +150,7 @@ class SRCNN_Orig(nn.Module):
         )
 
         # Rebuild the layer.
-        self.reconstruction = nn.Conv2d(32, 1, (5, 5), (1, 1), (2, 2))
+        self.reconstruction = nn.Conv2d(32, 1, (5, 5), (1, 1), (2,2))
 
         # Initialize model weights.
         self._initialize_weights()
@@ -176,3 +176,59 @@ class SRCNN_Orig(nn.Module):
 
         nn.init.normal_(self.reconstruction.weight.data, 0.0, 0.001)
         nn.init.zeros_(self.reconstruction.bias.data)
+
+class SRResNet(nn.Module):
+    """
+    The SRResNet, as defined in the paper.
+    """
+
+    def __init__(self, large_kernel_size=9, small_kernel_size=3, n_channels=64, n_blocks=16, scaling_factor=4):
+        """
+        :param large_kernel_size: kernel size of the first and last convolutions which transform the inputs and outputs
+        :param small_kernel_size: kernel size of all convolutions in-between, i.e. those in the residual and subpixel convolutional blocks
+        :param n_channels: number of channels in-between, i.e. the input and output channels for the residual and subpixel convolutional blocks
+        :param n_blocks: number of residual blocks
+        :param scaling_factor: factor to scale input images by (along both dimensions) in the subpixel convolutional block
+        """
+        super(SRResNet, self).__init__()
+
+        # Scaling factor must be 2, 4, or 8
+        scaling_factor = int(scaling_factor)
+        assert scaling_factor in {2, 4, 8}, "The scaling factor must be 2, 4, or 8!"
+
+        # The first convolutional block
+        
+        self.conv_block1 = ConvLayer(3, n_channels, large_kernel_size, 1, 1, 'prelu', False)
+        # A sequence of n_blocks residual blocks, each containing a skip-connection across the block
+        self.residual_blocks = nn.Sequential(
+            *[ResLayer(small_kernel_size, n_channels, True, 'prelu') for i in range(n_blocks)])
+        
+        # Another convolutional block
+        self.conv_block2 = ConvLayer(n_channels, n_channels, small_kernel_size, 1, 1, None, True)
+
+        # Upscaling is done by sub-pixel convolution, with each such block upscaling by a factor of 2
+        n_subpixel_convolution_blocks = int(math.log2(scaling_factor))
+        
+        self.subpixel_convolutional_blocks = nn.Sequential(
+            *[ShufConvLayer(n_channels, n_channels, small_kernel_size, 2, 1, None) for i
+              in range(n_subpixel_convolution_blocks)])
+
+        # The last convolutional block
+        self.conv_block3 = ConvLayer(n_channels, 3, large_kernel_size, 1, 1, 'tanh', False)
+
+    def forward(self, lr_imgs):
+        """
+        Forward prop.
+
+        :param lr_imgs: low-resolution input images, a tensor of size (N, 3, w, h)
+        :return: super-resolution output images, a tensor of size (N, 3, w * scaling factor, h * scaling factor)
+        """
+        output = self.conv_block1(lr_imgs)  # (N, 3, w, h)
+        residual = output  # (N, n_channels, w, h)
+        output = self.residual_blocks(output)  # (N, n_channels, w, h)
+        output = self.conv_block2(output)  # (N, n_channels, w, h)
+        output = output + residual  # (N, n_channels, w, h)
+        output = self.subpixel_convolutional_blocks(output)  # (N, n_channels, w * scaling factor, h * scaling factor)
+        sr_imgs = self.conv_block3(output)  # (N, 3, w * scaling factor, h * scaling factor)
+
+        return sr_imgs

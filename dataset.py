@@ -125,9 +125,9 @@ class ImageDataset(Dataset):
         """Extracts ZIP or TAR files."""
         if filepath.endswith(".zip"):
             with zipfile.ZipFile(filepath, 'r') as zip_ref:
-                zip_ref.extractall(dataset_name)
+                zip_ref.extractall(self.dataset_name)
         elif filepath.endswith(".tar"):
-            os.system(f"tar -xf {filepath} -C {dataset_name}")
+            os.system(f"tar -xf {filepath} -C {self.dataset_name}")
         else:
             raise ValueError("Unsupported file format!")
         

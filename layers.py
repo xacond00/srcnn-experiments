@@ -27,8 +27,8 @@ class ActivLayer(nn.Module):
             self.operation = (nn.ReLU(True))
         elif activation == 'lrelu':
             self.operation = (nn.LeakyReLU(inplace=True))
-        elif activation == 'prelu_ch':
-            self.operation = (nn.PReLU(out_channels))
+        #elif activation == 'prelu_ch':
+        #    self.operation = (nn.PReLU())
         elif activation == 'tanh':
             self.operation = (nn.Tanh())
         elif activation == 'clip':
@@ -77,11 +77,11 @@ class ConvLayer(nn.Module):
         return self.conv_block(input)  # (N, out_channels, w, h)
 
 class ResLayer(nn.Module):
-    def __init__(self, kernel_size=3, n_channels=64, batch_norm = False):
+    def __init__(self, kernel_size=3, n_channels=64, batch_norm = False, activation='lrelu'):
         super(ResLayer, self).__init__()
         # The first convolutional block
         self.conv_block1 = ConvLayer(in_channels=n_channels, out_channels=n_channels, kernel_size=kernel_size,
-                                              batch_norm=batch_norm, activation='lrelu') #prelu uses too much memory
+                                              batch_norm=batch_norm, activation=activation) #prelu uses too much memory
 
         # The second convolutional block
         self.conv_block2 = ConvLayer(in_channels=n_channels, out_channels=n_channels, kernel_size=kernel_size,
@@ -116,4 +116,3 @@ class SqrtLoss(torch.nn.Module):
     def forward(self, x, y):
        return torch.sqrt((x - y).abs() + 1e-6).mean()
 
-        

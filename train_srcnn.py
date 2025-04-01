@@ -24,8 +24,8 @@ unfreeze = False # Unfreeze all parameters
 test = False # Enable test mode (show output images)
 resnet = False
 res_blocks = 16
-base_model = None #"4x64ssim_c5x2_c3x5.pth" #"4x64vge_c5x2_c3x5.pth" #"4x_c5x96x2_c3x96x5.pth"   #"8x_c5x256x2_c3x256x5.pth" #"base/c5x64x2_c3x64x5.pth" #"c5x64x2_rc3x5c3_s3.pth"
-model_name = "ssresnet_ssae.pth"#"4x64ssim_c5x2_c3x5.pth" #"c5x64x2_c3x64x5_ssim.pth"
+base_model = None #"ssresnet_mae.pth" #"4x64ssim_c5x2_c3x5.pth" #"4x64vge_c5x2_c3x5.pth" #"4x_c5x96x2_c3x96x5.pth"   #"8x_c5x256x2_c3x256x5.pth" #"base/c5x64x2_c3x64x5.pth" #"c5x64x2_rc3x5c3_s3.pth"
+model_name = "auxresnet_ssae_nobn.pth"#"4x64ssim_c5x2_c3x5.pth" #"c5x64x2_c3x64x5_ssim.pth"
 aux_name = "base/c5x4.pth"
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer
@@ -40,10 +40,10 @@ loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
 loss_tp = 4
 
 ds_train = True # Set dataset to training mode (random crop position)
-batch_size = 16 # batch size
-crop_size = 384
+batch_size = 8 # batch size
+crop_size = 256
 pre_scale = 1   
-lr = 1e-4  # learning rate
+lr = 3e-4  # learning rate
 
 start_epoch = 0  # start at this epoch
 iterations = 2000  # number of training iterations
@@ -67,7 +67,7 @@ def main():
     init_model = base_model if base_model and not test and checkpoint else model_name 
     if not checkpoint or not os.path.exists(init_model):
         if res_blocks > 0: 
-            model = SRResNet(9, 3, nch, res_blocks, scaling_factor)
+            model = SRResNet(9, 3, nch, res_blocks, scaling_factor, aux_name, 'lin', False)
         else:
             if not resnet:
                 layers = [(nch,5), (nch,5), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3)]#ESPCNN

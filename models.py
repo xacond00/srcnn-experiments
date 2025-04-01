@@ -63,13 +63,12 @@ class SRCNN(nn.Module):
             else:
                 self.aux_upscaler = torch.load(au, weights_only=False)['model']
                 freeze_model(self.aux_upscaler)
-        else:
-            self.aux_upscaler = None
+
     def forward(self, lr_imgs):
         output = self.conv_layers(lr_imgs)  # (N, 3, w, h)
         output = self.upsc_layer(output)
-        if(self.aux_upscaler):
-            output = output + self.aux_upscaler(lr_imgs)
+        if hasattr(self, 'aux_upscaler') and self.aux_upscaler is not None:
+            output = output +self.aux_upscaler(lr_imgs)
         if hasattr(self, 'last_layer'):
             output = self.last_layer(output)
         return output
@@ -182,7 +181,7 @@ class SRResNet(nn.Module):
     The SRResNet, as defined in the paper.
     """
 
-    def __init__(self, large_kernel_size=9, small_kernel_size=3, n_channels=64, n_blocks=16, scaling_factor=4):
+    def __init__(self, large_kernel_size=9, small_kernel_size=3, n_channels=64, n_blocks=16, scaling_factor=4, aux_upscaler = None, last_activ = 'tanh', batch_norm = True):
         """
         :param large_kernel_size: kernel size of the first and last convolutions which transform the inputs and outputs
         :param small_kernel_size: kernel size of all convolutions in-between, i.e. those in the residual and subpixel convolutional blocks
@@ -196,15 +195,13 @@ class SRResNet(nn.Module):
         scaling_factor = int(scaling_factor)
         assert scaling_factor in {2, 4, 8}, "The scaling factor must be 2, 4, or 8!"
 
-        # The first convolutional block
-        
         self.conv_block1 = ConvLayer(3, n_channels, large_kernel_size, 1, 1, 'prelu', False)
         # A sequence of n_blocks residual blocks, each containing a skip-connection across the block
         self.residual_blocks = nn.Sequential(
-            *[ResLayer(small_kernel_size, n_channels, True, 'prelu') for i in range(n_blocks)])
+            *[ResLayer(small_kernel_size, n_channels, batch_norm, 'prelu') for i in range(n_blocks)])
         
         # Another convolutional block
-        self.conv_block2 = ConvLayer(n_channels, n_channels, small_kernel_size, 1, 1, None, True)
+        self.conv_block2 = ConvLayer(n_channels, n_channels, small_kernel_size, 1, 1, None, batch_norm)
 
         # Upscaling is done by sub-pixel convolution, with each such block upscaling by a factor of 2
         n_subpixel_convolution_blocks = int(math.log2(scaling_factor))
@@ -214,7 +211,14 @@ class SRResNet(nn.Module):
               in range(n_subpixel_convolution_blocks)])
 
         # The last convolutional block
-        self.conv_block3 = ConvLayer(n_channels, 3, large_kernel_size, 1, 1, 'clip', False)
+        self.conv_block3 = ConvLayer(n_channels, 3, large_kernel_size, 1, 1, last_activ, False)
+        if(aux_upscaler):
+            au = aux_upscaler
+            if(au in {'nearest', 'bilinear', 'bicubic'}):
+                self.aux_upscaler = nn.Upsample(scale_factor=scaling_factor, mode=au, align_corners=(au != "nearest"))
+            else:
+                self.aux_upscaler = torch.load(au, weights_only=False)['model']
+                freeze_model(self.aux_upscaler)
 
     def forward(self, lr_imgs):
         """
@@ -230,5 +234,6 @@ class SRResNet(nn.Module):
         output = output + residual  # (N, n_channels, w, h)
         output = self.subpixel_convolutional_blocks(output)  # (N, n_channels, w * scaling factor, h * scaling factor)
         sr_imgs = self.conv_block3(output)  # (N, 3, w * scaling factor, h * scaling factor)
-
+        if hasattr(self, 'aux_upscaler') and self.aux_upscaler is not None:
+            sr_imgs = sr_imgs + self.aux_upscaler(lr_imgs)
         return sr_imgs

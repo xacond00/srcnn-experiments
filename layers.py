@@ -13,6 +13,16 @@ class ClipLayer(nn.Module):
     def forward(self, input):
         return torch.clamp_(input, 0.0, 1.0)
 
+class LinhLayer(nn.Module):
+    """
+    A convolutional block, comprising convolutional, BN, activation layers.
+    """
+
+    def __init__(self):
+        super(ClipLayer, self).__init__()
+    def forward(self, input):
+        return torch.clamp_(input, -1.0, 1.0)
+
 class ActivLayer(nn.Module):
     def __init__(self, activation="lrelu"):
         super(ActivLayer, self).__init__()
@@ -31,6 +41,8 @@ class ActivLayer(nn.Module):
         #    self.operation = (nn.PReLU())
         elif activation == 'tanh':
             self.operation = (nn.Tanh())
+        elif activation == 'linh':
+            self.operation = LinhLayer()
         elif activation == 'clip':
             self.operation = ClipLayer()
         else:

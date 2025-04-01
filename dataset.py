@@ -9,7 +9,7 @@ import torch
 
 
 class ImageDataset(Dataset):
-    def __init__(self, dataset_name="DIV2K", train : bool = True, scale : int= 4, downscale : int = 1, crop : int = 1024):
+    def __init__(self, dataset_name="DIV2K", train : bool = True, scale : int= 4, downscale : int = 1, crop : int = 1024, cache = True):
         """
         Args:
             root_dir (str): Directory to store/download datasets.
@@ -20,7 +20,7 @@ class ImageDataset(Dataset):
         self.crop = crop
         self.downscale = downscale
         self.scale = scale
-        self.cache = {}
+        self.cache = {} if cache else None
         self.dataset_name = dataset_name
 
         if dataset_name == "Flickr2K":
@@ -72,12 +72,12 @@ class ImageDataset(Dataset):
         return self.load_img(i, self.scale, self.downscale, self.crop, self.train)
 
     def load_img(self, i, scale : int = 4, downscale : int = 2, crop : int = 1024, train = False):
-        if(i in self.cache):
-            img = self.cache[i]
-        else:
-            img = Image.open(self.images[i], mode='r')
-            img = img.convert('RGB')
-            self.cache[i] = img
+        #if(i in self.cache):
+        #    img = self.cache[i]
+        #else:
+        img = Image.open(self.images[i], mode='r')
+        img = img.convert('RGB')
+            #self.cache[i] = img
         osize = (img.height, img.width)
         if(train and not crop):
             crop = min(osize)

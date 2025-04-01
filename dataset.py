@@ -22,9 +22,19 @@ class ImageDataset(Dataset):
         self.scale = scale
         self.cache = {}
         self.dataset_name = dataset_name
-        self.dataset_folder = dataset_name if dataset_name == "Flickr2K" else "DIV2K/DIV2K_train_HR/" 
+
+        if dataset_name == "Flickr2K":
+            self.dataset_folder = dataset_name
+        elif dataset_name == "DIV2KVal":
+            self.dataset_folder = "DIV2KVal/DIV2K_valid_HR/" 
+        else:
+            self.dataset_folder = "DIV2K/DIV2K_train_HR/"
+
+        print(self.dataset_folder)
+         
         self.dataset_urls = {
             "DIV2K": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip",
+            "DIV2KVal": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip",
             "Flickr2K": "https://cv.snu.ac.kr/research/EDSR/Flickr2K.tar"
         }
         # Ensure dataset is available
@@ -134,4 +144,3 @@ class ImageDataset(Dataset):
 
     def __len__(self):
         return len(self.images)
-

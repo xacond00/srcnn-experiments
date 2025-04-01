@@ -1,4 +1,4 @@
-# https://github.com/lartpang/mssim.pytorch/blob/main/ssim.py
+# Modified from: https://github.com/lartpang/mssim.pytorch/blob/main/ssim.py
 
 import math
 import warnings
@@ -126,8 +126,8 @@ class SSIM(nn.Module):
         return_msssim=False,
         padding=None,
         ensemble_kernel=True,
-        as_loss=False
-
+        as_loss=False,
+        mae_alpha = 0.0
     ):
         """Calculate the mean SSIM (MSSIM) between two 4D tensors.
 
@@ -181,6 +181,9 @@ class SSIM(nn.Module):
         self.keep_batch_dim = keep_batch_dim
         self.return_log = return_log
         self.return_msssim = return_msssim
+        self.alpha = mae_alpha
+        if self.alpha > 0.0:
+            self.mae = nn.L1Loss(reduction="mean")
         if self.return_msssim and self.return_log:
             raise ValueError("return_log only support return_msssim=False")
         if self.return_msssim and self.data_dim < 2:
@@ -195,7 +198,7 @@ class SSIM(nn.Module):
             ensemble_kernel=ensemble_kernel,
         )
 
-    @torch.cuda.amp.autocast(enabled=False)
+    @torch.amp.autocast('cuda', enabled=False)
     def forward(self, x, y):
         """Calculate the mean SSIM (MSSIM) between two 3d/4d/5d tensors.
 
@@ -217,7 +220,14 @@ class SSIM(nn.Module):
             res = self.msssim(x, y)
         else:
             res = self.ssim(x, y)
-        return 1.0 - res if self.as_loss else res
+        
+        res = 1.0 - res if self.as_loss else res
+        if(self.alpha > 0.0):
+            return self.alpha * self.mae(x,y) + (1 - self.alpha) * res
+        else:
+            return res
+
+
 
     def ssim(self, x, y):
         ssim, _ = self._ssim(x, y)

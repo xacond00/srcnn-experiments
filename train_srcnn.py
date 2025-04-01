@@ -8,7 +8,7 @@ import ssim
 from torch import nn
 from torchinfo import summary
 from layers import SqrtLoss, ConvLayer
-from models import SRCNN, VGG_Loss, freeze_model, unfreeze_model
+from models import SRCNN, VGG_Loss, freeze_model, unfreeze_model, SRResNet
 from dataset import ImageDataset
 from train import train, compare_images
 
@@ -23,8 +23,9 @@ checkpoint = True  # Load checkpoint
 unfreeze = False # Unfreeze all parameters
 test = False # Enable test mode (show output images)
 resnet = False
-base_model = None #"4x64vge_c5x2_c3x5.pth" #"4x_c5x96x2_c3x96x5.pth"   #"8x_c5x256x2_c3x256x5.pth" #"base/c5x64x2_c3x64x5.pth" #"c5x64x2_rc3x5c3_s3.pth"
-model_name = "4x64ssim_c5x2_c3x5.pth"#"4x64ssim_c5x2_c3x5.pth" #"c5x64x2_c3x64x5_ssim.pth"
+res_blocks = 16
+base_model = None #"4x64ssim_c5x2_c3x5.pth" #"4x64vge_c5x2_c3x5.pth" #"4x_c5x96x2_c3x96x5.pth"   #"8x_c5x256x2_c3x256x5.pth" #"base/c5x64x2_c3x64x5.pth" #"c5x64x2_rc3x5c3_s3.pth"
+model_name = "ssresnet_ssae.pth"#"4x64ssim_c5x2_c3x5.pth" #"c5x64x2_c3x64x5_ssim.pth"
 aux_name = "base/c5x4.pth"
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer
@@ -34,13 +35,14 @@ freeze = False # Freeze the backbone when appending shuffle conv layer
 vgg_i = 3 # VGG_Loss maxpool index
 vgg_j = 3 # VGG_Loss conv index (in a block)
 vgg_alpha = 0.0 # Lerp mae with vgg loss
+ssim_alpha = 0.5  # Mix mae with vgg
 loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
 loss_tp = 4
 
 ds_train = True # Set dataset to training mode (random crop position)
-batch_size = 8 # batch size
-crop_size = 512
-pre_scale = 1
+batch_size = 16 # batch size
+crop_size = 384
+pre_scale = 1   
 lr = 1e-4  # learning rate
 
 start_epoch = 0  # start at this epoch
@@ -64,13 +66,15 @@ def main():
     # Initialize model or load checkpoint
     init_model = base_model if base_model and not test and checkpoint else model_name 
     if not checkpoint or not os.path.exists(init_model):
-        if not resnet:
-            layers = [(nch,5), (nch,5), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3)]#ESPCNN
+        if res_blocks > 0: 
+            model = SRResNet(9, 3, nch, res_blocks, scaling_factor)
         else:
-            layers = [(nch,5), (nch,5), ('res',3), ('res',3), ('res',3), ('res',3), ('res',3), (nch, 3)] # Resnet
-        last_layer = (last_ks, 'clip') if last_ks else None
-        #model = SRResNet(9, 3, 64, 16, scaling_factor)
-        model = SRCNN(layers, n_channels, ps_ks, scaling_factor, aux_name, "lrelu", last=last_layer)
+            if not resnet:
+                layers = [(nch,5), (nch,5), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3)]#ESPCNN
+            else:
+                layers = [(nch,5), (nch,5), ('res',3), ('res',3), ('res',3), ('res',3), ('res',3), (nch, 3)] # Resnet
+            last_layer = (last_ks, 'clip') if last_ks else None
+            model = SRCNN(layers, n_channels, ps_ks, scaling_factor, aux_name, "lrelu", last=last_layer)
 
         optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, model.parameters()),
                                      lr=lr)
@@ -123,7 +127,7 @@ def main():
     elif(loss_fns[loss_tp] == 'sqrt'):
         criterion = SqrtLoss()
     elif(loss_fns[loss_tp] == 'ssim'):
-        criterion = ssim.SSIM(in_channels=3, as_loss=True)
+        criterion = ssim.SSIM(in_channels=3, as_loss=True, mae_alpha=ssim_alpha)
         criterion.to(device, memory_format=torch.channels_last)
     else:
         criterion = nn.MSELoss()

@@ -1,0 +1,5 @@
+./final/4x64mae_c5x2_c3x5.pth: PSNR=25.02, SSIM=0.7614
+./final/4x64ssae_c5x2_c3x5.pth: PSNR=24.49, SSIM=0.7569
+./final/4x64ssim_c5x2_c3x5.pth: PSNR=24.12, SSIM=0.7558
+./final/4x64uvge_c5x2_c3x5.pth: PSNR=20.67, SSIM=0.5251
+./ssresnet_ssae.pth: PSNR=23.92, SSIM=0.7371

@@ -210,7 +210,7 @@ class SRResNet(nn.Module):
         n_subpixel_convolution_blocks = int(math.log2(scaling_factor))
         
         self.subpixel_convolutional_blocks = nn.Sequential(
-            *[ShufConvLayer(n_channels, n_channels, small_kernel_size, 2, 1, None) for i
+            *[ShufConvLayer2(n_channels, n_channels, small_kernel_size, 2, 1, None) for i
               in range(n_subpixel_convolution_blocks)])
 
         # The last convolutional block

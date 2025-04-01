@@ -20,7 +20,7 @@ class ImageDataset(Dataset):
         self.crop = crop
         self.downscale = downscale
         self.scale = scale
-        #self.cache = {}
+        self.cache = {}
         self.dataset_name = dataset_name
         self.dataset_folder = dataset_name if dataset_name == "Flickr2K" else "DIV2K/DIV2K_train_HR/" 
         self.dataset_urls = {
@@ -62,12 +62,12 @@ class ImageDataset(Dataset):
         return self.load_img(i, self.scale, self.downscale, self.crop, self.train)
 
     def load_img(self, i, scale : int = 4, downscale : int = 2, crop : int = 1024, train = False):
-        #if(i in self.cache):
-        #    img = self.cache[i]
-        #else:
-        img = Image.open(self.images[i], mode='r')
-        img = img.convert('RGB')
-            #self.cache[i] = img
+        if(i in self.cache):
+            img = self.cache[i]
+        else:
+            img = Image.open(self.images[i], mode='r')
+            img = img.convert('RGB')
+            self.cache[i] = img
         osize = (img.height, img.width)
         if(train and not crop):
             crop = min(osize)

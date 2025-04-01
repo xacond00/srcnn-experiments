@@ -95,6 +95,30 @@ class ResLayer(nn.Module):
 
         return output
 
+
+class ShufConvLayer2(nn.Module):
+
+    def __init__(self,  in_channels, out_channels, kernel_size=3, scaling_factor=2, groups = 1, activation=None):
+        super().__init__()
+        self.conv = ConvLayer(
+          in_channels, 
+          out_channels * (scaling_factor ** 2), 
+          kernel_size, 
+          1, 
+          groups, 
+          activation,
+        )
+        self.pixel_shuffle = nn.PixelShuffle(
+          upscale_factor=scaling_factor
+        )
+        self.prelu = nn.PReLU()
+
+    def forward(self, input):
+        output = self.conv(input) 
+        output = self.pixel_shuffle(output)
+        return self.prelu(output)
+
+
 class ShufConvLayer(nn.Module):
 
     def __init__(self,  in_channels, out_channels, kernel_size=3, scaling_factor=2, groups = 1, activation="clip"):

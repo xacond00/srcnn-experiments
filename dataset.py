@@ -72,12 +72,15 @@ class ImageDataset(Dataset):
         return self.load_img(i, self.scale, self.downscale, self.crop, self.train)
 
     def load_img(self, i, scale : int = 4, downscale : int = 2, crop : int = 1024, train = False):
-        #if(i in self.cache):
-        #    img = self.cache[i]
-        #else:
-        img = Image.open(self.images[i], mode='r')
-        img = img.convert('RGB')
-            #self.cache[i] = img
+        has_cache = self.cache is not None 
+        if(has_cache and i in self.cache):
+            img = self.cache[i]
+        else:
+            img = Image.open(self.images[i], mode='r')
+            img = img.convert('RGB')
+            if(has_cache):
+                self.cache[i] = img
+                
         osize = (img.height, img.width)
         if(train and not crop):
             crop = min(osize)

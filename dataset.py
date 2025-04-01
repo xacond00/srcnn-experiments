@@ -144,5 +144,3 @@ class ImageDataset(Dataset):
 
     def __len__(self):
         return len(self.images)
-
-dataset = ImageDataset(dataset_name="DIV2KVal", train=False, scale=8, downscale=1, crop=1024)

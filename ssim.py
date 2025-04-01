@@ -1,4 +1,4 @@
-# https://github.com/lartpang/mssim.pytorch/blob/main/ssim.py
+# Modified from: https://github.com/lartpang/mssim.pytorch/blob/main/ssim.py
 
 import math
 import warnings
@@ -198,7 +198,7 @@ class SSIM(nn.Module):
             ensemble_kernel=ensemble_kernel,
         )
 
-    @torch.cuda.amp.autocast(enabled=False)
+    @torch.amp.autocast('cuda', enabled=False)
     def forward(self, x, y):
         """Calculate the mean SSIM (MSSIM) between two 3d/4d/5d tensors.
 

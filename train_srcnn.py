@@ -41,10 +41,11 @@ loss_tp = 4
 
 ds_train = True # Set dataset to training mode (random crop position)
 batch_size = 8 # batch size
-crop_size = 256
+crop_size = 384
 pre_scale = 1   
-lr = 3e-4  # learning rate
+lr = 4e-5  # learning rate
 
+min_loss = 1000000.0
 start_epoch = 0  # start at this epoch
 iterations = 2000  # number of training iterations
 workers = 8  # number of workers for loading data in the DataLoader
@@ -80,11 +81,12 @@ def main():
                                      lr=lr)
 
     else:
-        print("Loaded model: ", init_model)
         checkpoint = torch.load(init_model, weights_only=False)
         start_epoch = checkpoint['epoch'] + 1
         model = checkpoint['model']
-
+        min_loss = checkpoint.get('loss', 10000000.0)
+        print("Loaded model:", init_model, "Loss:", min_loss)
+        
         if last_ks > 0 and not hasattr(model, 'last_layer'):
             if freeze:
                 freeze_model(model)
@@ -157,7 +159,7 @@ def main():
     # Epochs
     for epoch in range(start_epoch, epochs):
         # One epoch's training
-        train(train_loader=train_loader,
+        loss = train(train_loader=train_loader,
               model=model,
               criterion=criterion,
               optimizer=optimizer,
@@ -167,12 +169,17 @@ def main():
               device=device,
               valid_ds=valid_ds
               )
-
+        if(loss < 5 * min_loss):
+            min_loss = min(loss, min_loss)
         # Save checkpoint
-        torch.save({'epoch': epoch,
-                    'model': model,
-                    'optimizer': optimizer},
-                   model_name)
+            torch.save({'epoch': epoch,
+                        'model': model,
+                        'optimizer': optimizer,
+                        'loss' : min_loss},
+                    model_name)
+        else:
+            print("Loss has exploded ! Try tweaking the learning rate")
+            break
         #if(epoch % 20 == 0):
         #    compare_images(train_dataset, model, device, epoch, scaling_factor)
         

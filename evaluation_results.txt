@@ -1,3 +1,2 @@
 ./final/4x64mae_c5x2_c3x5.pth: PSNR=25.03, SSIM=0.7616
-auxresnet_ssae.pth: PSNR=24.63, SSIM=0.7588
-ssresnet_ssae.pth: PSNR=23.92, SSIM=0.7371
+auxresnet_ssae_nobn.pth: PSNR=24.74, SSIM=0.7688

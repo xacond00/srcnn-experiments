@@ -101,7 +101,8 @@ def train(train_loader, model, criterion, optimizer, epoch, grad_clip, print_fre
         f'Time per iter ({tally:.3f})----'
         f'Loss ({losses.avg:.4f})----'
         f'Val loss ({val_loss:.4f})')
-
     # Free memory
     del lr_imgs, hr_imgs, sr_imgs
     torch.cuda.empty_cache()
+    return val_loss if valid_ds is not None else losses.avg
+

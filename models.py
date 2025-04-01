@@ -214,7 +214,7 @@ class SRResNet(nn.Module):
               in range(n_subpixel_convolution_blocks)])
 
         # The last convolutional block
-        self.conv_block3 = ConvLayer(n_channels, 3, large_kernel_size, 1, 1, 'tanh', False)
+        self.conv_block3 = ConvLayer(n_channels, 3, large_kernel_size, 1, 1, 'clip', False)
 
     def forward(self, lr_imgs):
         """

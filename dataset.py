@@ -6,10 +6,11 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms import v2
 import torch
-
+import math
+import threading
 
 class ImageDataset(Dataset):
-    def __init__(self, dataset_name="DIV2K", train : bool = True, scale : int= 4, downscale : int = 1, crop : int = 1024, cache = True):
+    def __init__(self, dataset_name="DIV2K", train : bool = True, scale : int= 4, downscale : int = 1, crop : int = 1024, cache_size = 1000):
         """
         Args:
             root_dir (str): Directory to store/download datasets.
@@ -20,7 +21,7 @@ class ImageDataset(Dataset):
         self.crop = crop
         self.downscale = downscale
         self.scale = scale
-        self.cache = {} if cache else None
+
         self.dataset_name = dataset_name
 
         if dataset_name == "Flickr2K":
@@ -44,7 +45,30 @@ class ImageDataset(Dataset):
         self.images = [os.path.join(self.dataset_folder, f) 
                             for f in os.listdir(self.dataset_folder) 
                             if f.lower().endswith(('png', 'jpg', 'jpeg'))]
+        self.en_cache = cache_size > 0
+        if(self.en_cache):
+            self.cache = dict()
+            self.cache_size = cache_size  # Max cached images
+            self.lock = threading.Lock()  # Thread safety
 
+    def cached_img(self, i):
+        if not self.en_cache:
+            with Image.open(self.images[i]) as img:
+                return img.convert('RGB')
+
+        with self.lock:  # Ensure thread safety
+            if i in self.cache:
+                return self.cache[i]  # Return cached image
+
+        # Load image from disk if not cached
+        with Image.open(self.images[i]) as img:
+            img = img.convert('RGB')
+
+        with self.lock:
+            if len(self.cache) < self.cache_size:
+                self.cache[i] = img
+
+        return img
     def get_transforms(self, train, osize, dims, crop : int = 0):
         if(osize[0] < crop):
             fn_size = v2.Resize(size=(crop, osize[1]))
@@ -71,32 +95,18 @@ class ImageDataset(Dataset):
     def __getitem__(self, i):
         return self.load_img(i, self.scale, self.downscale, self.crop, self.train)
 
-    def load_img(self, i, scale : int = 4, downscale : int = 2, crop : int = 1024, train = False):
-        has_cache = self.cache is not None 
-        if(has_cache and i in self.cache):
-            img = self.cache[i]
-        else:
-            img = Image.open(self.images[i], mode='r')
-            img = img.convert('RGB')
-            if(has_cache):
-                self.cache[i] = img
-                
-        osize = (img.height, img.width)
-        if(train and not crop):
-            crop = min(osize)
-        size = (crop, crop) if crop else osize
+    def load_img(self, i, scale : int = 4, downscale : int = 1, crop : int = 1024, train = False):
+        img = self.cached_img(i)        
+        in_size = (img.height, img.width)
+        size = (crop, crop) if crop else in_size
         size = [s // downscale for s in size]
-
-        trafo = self.get_transforms(train, osize, size, crop)
+        dims = None if downscale == 1 else size
+        trafo = self.get_transforms(train, in_size, dims, crop)
         hr = trafo(img)
 
         lr_size = [s // scale for s in size]
         lr_scale = v2.Compose([v2.Resize(size=lr_size)])
         return lr_scale(hr), hr
-
-    def get_img(self, i, scale = 4, downscale = 2, crop = 1024, train = False):
-        lr, hr = self.load_img(i, scale, downscale, crop, train)        
-        return lr.permute(1, 2, 0).numpy(), hr.permute(1, 2, 0).numpy()
 
     def download_and_extract(self):
         """Downloads and extracts the dataset if not found."""

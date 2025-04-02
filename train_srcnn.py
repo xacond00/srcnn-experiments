@@ -28,7 +28,7 @@ res_blocks = 64 # Number of residual blocks in resnet
 nch = 64 # Number of channels in core layers
 
 base_model = None #"4x96ssae_c5x2_c3x6.pth"
-model_name = "auxresnet_ssae_nobn.pth" if srresnet else "4x64ssaer_c5x2_rc3x64.pth"
+model_name = "auxresnet_ssae_nobn.pth" if srresnet else "4x64ssae_c5x2_rc3x64.pth"
 aux_name = "base/c5x4.pth" # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer (doesnt improve much)
@@ -43,9 +43,9 @@ loss_tp = 4 # Selected loss
 
 ds_train = True # Set dataset to training mode (random crop position)
 batch_size = 8 # batch size
-crop_size = 512 # Crop dimension for training
+crop_size = 384 # Crop dimension for training
 pre_scale = 1 # Prescale in training
-lr = 2e-4  # learning rate
+lr = 2e-4 / 8 #/8  # learning rate
 
 min_loss = 1000000.0 # Minimal loss in network
 start_epoch = 0  # start at this epoch

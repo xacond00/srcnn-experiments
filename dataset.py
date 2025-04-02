@@ -20,7 +20,6 @@ class ImageDataset(Dataset):
         self.crop = crop
         self.downscale = downscale
         self.scale = scale
-
         self.dataset_name = dataset_name
 
         if dataset_name == "Flickr2K":
@@ -154,6 +153,5 @@ class ImageDataset(Dataset):
         else:
             raise ValueError("Unsupported file format!")
         
-
     def __len__(self):
         return len(self.images)

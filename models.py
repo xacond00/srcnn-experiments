@@ -37,7 +37,7 @@ def unfreeze_model(model):
 class SRCNN(nn.Module):
 
     def __init__(self, layers : list, n_channels = 3, out_ks = 3, scaling_factor=4, aux_upscaler = None, activation = "lrelu", last = None):
-        super(SRCNN, self).__init__()
+        super().__init__()
 
         # Scaling factor must be 2, 4, or 8
         scaling_factor = int(scaling_factor)
@@ -89,7 +89,7 @@ class VGG_Loss(nn.Module):
         :param i: the index i in the definition above
         :param j: the index j in the definition above
         """
-        super(VGG_Loss, self).__init__()
+        super().__init__()
         self.loss_fn = nn.MSELoss() if loss_fn == "mse" else nn.L1Loss(reduction='mean')
         # Load the pre-trained VGG19 available in torchvision
         vgg19 = torchvision.models.vgg19(weights= 'VGG19_Weights.DEFAULT')
@@ -137,7 +137,7 @@ class VGG_Loss(nn.Module):
 
 class SRCNN_Orig(nn.Module):
     def __init__(self) -> None:
-        super(SRCNN_Orig, self).__init__()
+        super().__init__()
         # Feature extraction layer.
         self.features = nn.Sequential(
             nn.Conv2d(1, 64, (9, 9), (1, 1), (4, 4)),
@@ -178,6 +178,7 @@ class SRCNN_Orig(nn.Module):
         nn.init.normal_(self.reconstruction.weight.data, 0.0, 0.001)
         nn.init.zeros_(self.reconstruction.bias.data)
 
+
 class SRResNet(nn.Module):
     """
     The SRResNet, as defined in the paper.
@@ -191,7 +192,7 @@ class SRResNet(nn.Module):
         :param n_blocks: number of residual blocks
         :param scaling_factor: factor to scale input images by (along both dimensions) in the subpixel convolutional block
         """
-        super(SRResNet, self).__init__()
+        super().__init__()
 
         # Scaling factor must be 2, 4, or 8
         scaling_factor = int(scaling_factor)

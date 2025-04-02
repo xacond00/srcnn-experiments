@@ -1,31 +1,26 @@
 import torch
 from torch import nn
-import torchvision
-import math
+
 
 class ClipLayer(nn.Module):
     """
     A convolutional block, comprising convolutional, BN, activation layers.
     """
-
-    def __init__(self):
-        super(ClipLayer, self).__init__()
     def forward(self, input):
         return torch.clamp_(input, 0.0, 1.0)
+
 
 class LinhLayer(nn.Module):
     """
     A convolutional block, comprising convolutional, BN, activation layers.
     """
-
-    def __init__(self):
-        super(ClipLayer, self).__init__()
     def forward(self, input):
         return torch.clamp_(input, -1.0, 1.0)
 
+
 class ActivLayer(nn.Module):
     def __init__(self, activation="lrelu"):
-        super(ActivLayer, self).__init__()
+        super().__init__()
 
         if activation is not None:
             activation = activation.lower()
@@ -51,6 +46,7 @@ class ActivLayer(nn.Module):
     def forward(self, input):
         return self.operation(input)
 
+
 class ConvLayer(nn.Module):
     """
     A convolutional block, comprising convolutional, BN, activation layers.
@@ -65,7 +61,7 @@ class ConvLayer(nn.Module):
         :param batch_norm: include a BN layer?
         :param activation: Type of activation; None if none
         """
-        super(ConvLayer, self).__init__()
+        super().__init__()
 
         # A container that will hold the layers in this convolutional block
         layers = list()
@@ -88,9 +84,10 @@ class ConvLayer(nn.Module):
     def forward(self, input):
         return self.conv_block(input)  # (N, out_channels, w, h)
 
+
 class ResLayer(nn.Module):
     def __init__(self, kernel_size=3, n_channels=64, batch_norm = False, activation='lrelu'):
-        super(ResLayer, self).__init__()
+        super().__init__()
         # The first convolutional block
         self.conv_block1 = ConvLayer(in_channels=n_channels, out_channels=n_channels, kernel_size=kernel_size,
                                               batch_norm=batch_norm, activation=activation) #prelu uses too much memory
@@ -104,7 +101,6 @@ class ResLayer(nn.Module):
         output = self.conv_block1(input)  # (N, n_channels, w, h)
         output = self.conv_block2(output)  # (N, n_channels, w, h)
         output += residual  # (N, n_channels, w, h)
-
         return output
 
 
@@ -135,7 +131,7 @@ class ShufConvLayer(nn.Module):
 
     def __init__(self,  in_channels, out_channels, kernel_size=3, scaling_factor=2, groups = 1, activation="clip"):
 
-        super(ShufConvLayer, self).__init__()
+        super().__init__()
         self.conv = ConvLayer(in_channels, out_channels * (scaling_factor ** 2), kernel_size, 1, groups, activation)
         self.pixel_shuffle = nn.PixelShuffle(upscale_factor=scaling_factor)
 
@@ -147,8 +143,7 @@ class ShufConvLayer(nn.Module):
 
 class SqrtLoss(torch.nn.Module):
     def __init__(self):
-        super(SqrtLoss, self).__init__()
+        super().__init__()
 
     def forward(self, x, y):
        return torch.sqrt((x - y).abs() + 1e-6).mean()
-

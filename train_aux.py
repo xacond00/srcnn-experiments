@@ -1,13 +1,11 @@
 import os
-import time
 import torch.backends.cudnn as cudnn
 import torch
-import torchvision
 import ssim
 from torch import nn
 from torchinfo import summary
-from layers import ShufConvLayer, SqrtLoss, ConvLayer
-from models import SRCNN, VGG_Loss, freeze_model, unfreeze_model
+from layers import ShufConvLayer, SqrtLoss
+from models import VGG_Loss
 from dataset import ImageDataset
 from train import train, compare_images
 

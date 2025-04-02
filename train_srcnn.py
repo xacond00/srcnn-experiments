@@ -27,12 +27,16 @@ srcnn_resnet = True # Use custom resnet
 res_blocks = 64 # Number of residual blocks in resnet
 nch = 64 # Number of channels in core layers
 
-base_model = None #"4x96ssae_c5x2_c3x6.pth"
-model_name = "auxresnet_ssae_nobn.pth" if srresnet else "4x64ssae_c5x2_rc3x64.pth"
-aux_name = "base/c5x4.pth" # Name of auxiliary upscaler network (or classical method like bicubic)
-ps_ks = 3 # Pre-Pixel shuffle conv kernel size
-last_ks = 0 # Add post shuffle conv layer (doesnt improve much)
-freeze = False # Freeze the backbone when appending shuffle conv layer
+if srresnet:
+    model_name = "auxresnet_ssae_nobn.pth"
+else:
+    model_name = "4x64ssae_c5x2_rc3x64.pth"
+
+base_model = None  # "4x96ssae_c5x2_c3x6.pth"
+aux_name = "base/c5x4.pth"  # Name of auxiliary upscaler network (or classical method like bicubic)
+ps_ks = 3  # Pre-Pixel shuffle conv kernel size
+last_ks = 0  # Add post shuffle conv layer (doesnt improve much)
+freeze = False  # Freeze the backbone when appending shuffle conv layer
 
 vgg_i = 3 # VGG_Loss maxpool index
 vgg_j = 3 # VGG_Loss conv index (in a block)
@@ -69,13 +73,13 @@ def main():
     # Initialize model or load checkpoint
     init_model = base_model if base_model and not test and checkpoint else model_name 
     if not checkpoint or not os.path.exists(init_model):
-        if srresnet: 
+        if srresnet:
             model = SRResNet(9, 3, nch, res_blocks, scaling_factor, aux_name, 'lin', False)
         else:
-            if not srcnn_resnet:
-                layers = [(nch,5), (nch,5), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3)]#ESPCNN
-            else:
-                layers = [(nch,5), (nch,5)] # Custom srresnet implementation
+            if not srcnn_resnet:  # ESPCNN
+                layers = [(nch,5), (nch,5), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3)]
+            else:  # Custom srresnet implementation
+                layers = [(nch,5), (nch,5)]
                 for i in range(res_blocks):
                     layers.append(('res', 3))
                 layers.append((nch, 3))

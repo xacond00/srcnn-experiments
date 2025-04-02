@@ -6,7 +6,6 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms import v2
 import torch
-import math
 import threading
 
 class ImageDataset(Dataset):
@@ -69,6 +68,7 @@ class ImageDataset(Dataset):
                 self.cache[i] = img
 
         return img
+    
     def get_transforms(self, train, osize, dims, crop : int = 0):
         if(osize[0] < crop):
             fn_size = v2.Resize(size=(crop, osize[1]))

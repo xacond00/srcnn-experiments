@@ -1,6 +1,7 @@
 # Based on: https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Super-Resolution
-
+import math
 from layers import *
+
 """
 def freeze_model(model):
     try:
@@ -68,10 +69,11 @@ class SRCNN(nn.Module):
         output = self.conv_layers(lr_imgs)  # (N, 3, w, h)
         output = self.upsc_layer(output)
         if hasattr(self, 'aux_upscaler') and self.aux_upscaler is not None:
-            output = output +self.aux_upscaler(lr_imgs)
+            output = output + self.aux_upscaler(lr_imgs)
         if hasattr(self, 'last_layer'):
             output = self.last_layer(output)
         return output
+
 
 class VGG_Loss(nn.Module):
     """

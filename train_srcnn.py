@@ -32,6 +32,11 @@ if srresnet:
 else:
     model_name = "4x64ssae_c5x2_rc3x64.pth"
 
+"""
+4x96ssae_c5x2_rc3x16.pth = 
+Velikost Kanaly Loss _ Konvoluce Kernel x Pocet _ ResKonvoluce Kernel x Pocet . pth
+"""
+
 base_model = None  # "4x96ssae_c5x2_c3x6.pth"
 aux_name = "base/c5x4.pth"  # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3  # Pre-Pixel shuffle conv kernel size

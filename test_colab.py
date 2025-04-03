@@ -63,15 +63,25 @@ def evaluate_model(model, dataloader):
 if __name__ == "__main__":
         
     model_checkpoints = [
-        "resnet_correct.pth",
-        #"./final/4x64mae_c5x2_c3x5.pth",
-        #"./final/4x64ssae_c5x2_c3x5.pth",
-        #"./final/4x64ssim_c5x2_c3x5.pth",
-        #"./final/4x64uvge_c5x2_c3x5.pth",
-        #"./ssresnet_ssae.pth"
+        "./final/4x64ssim_c5x2_c3x5.pth",
+        "./final/4x64vge_c5x2_c3x5.pth",
+        "./final/4x64mae_c5x2_c3x5.pth",
+        "./final/4x64uvge_c5x2_c3x5.pth",
+        "./final/ssresnet_ssae.pth",
+        "./final/4x64ssae_c5x2_c3x5.pth",
+        "./final/4x64ssae_c5x2_rc3x16.pth",
+        "./final/4x64ssae_c5x2_rc3x32.pth",
+        "./final/4x64ssim_c5x2_rc3x32.pth",
+        "./final/4x96ssae_c5x2_c3x5.pth",
+        "./final/4x96ssae_c5x2_c3x6.pth",
+        "./final/auxresnet_ssae_nobn.pth",
+        "./final/auxresnet_ssae.pth",
+        "./final/4x128ssae_c5x2_rc3x16.pth",
+        "./final/4x96ssae_c5x2_rc3x16.pth",
+        "./final/4x96ssae_c5x2_rc3x32pth.pth",
     ]
     scale = 4
-    batch = 16
+    batch = 1
 
     # Load dataset
     dataset = ImageDataset(dataset_name="DIV2KVal", train=False, scale=scale, downscale=1, crop=512)

@@ -73,10 +73,10 @@ checkpoint_ram = {}
 def save_checkpoint_on_exit(signum, frame):
     global checkpoint_saved
 
-    if not checkpoint_saved and not test:
+    if not checkpoint_saved and not test and checkpoint_ram:
         print("Saving checkpoint...")
         torch.save(checkpoint_ram, model_name)  
-        checkpoint_saved = True  
+        checkpoint_saved = True
         if torch.cuda.is_available():
             print("Clearing GPU memory...")
             torch.cuda.empty_cache()  # Free unused GPU memory

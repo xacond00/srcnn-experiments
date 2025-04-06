@@ -8,7 +8,7 @@ import torchvision
 import ssim
 import signal
 import sys
-
+import math
 from torch import nn
 from torchinfo import summary
 from layers import SqrtLoss, ConvLayer
@@ -32,8 +32,8 @@ res_blocks = 16 # Number of residual blocks in resnet
 nch = 64 # Number of channels in core layers
 batch_norm = True
 
-base_model = "4x96mae_c5x2_rc3x16bn.pth" #"final/4x96ssae_c5x2_rc3x16.pth" #"final/4x96ssae_c5x2_rc3x16.pth" #None #"4x96ssae_c5x2_c3x6.pth"
-model_name = "auxresnet_ssae_nobn.pth" if srresnet else "4x96maegan_c5x2_rc3x16bn.pth"#"4x64maegan_c5x2_rc3x16pu.pth"
+base_model = None #"4x96maegan_c5x2_rc3x16_ns.pth" #"4x96maegan_c5x2_rc3x16.pth" #None #"final/4x96ssae_c5x2_rc3x16.pth" #"final/4x96ssae_c5x2_rc3x16.pth" #"final/4x96ssae_c5x2_rc3x16.pth" #None #"4x96ssae_c5x2_c3x6.pth"
+model_name = "auxresnet_ssae_nobn.pth" if srresnet else "4x96maegan_c5x2_rc3x16_ns2.pth"#"4x64maegan_c5x2_rc3x16pu.pth"
 aux_name = "base/c5x4.pth" # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer (doesnt improve much)
@@ -51,7 +51,7 @@ label_smooth = 0.05 # Label smoothing parameter
 
 ds_train = True # Set dataset to training mode (random crop position)
 batch_size = 16 # batch size
-crop_size = 256 # Crop dimension for training
+crop_size = 192 # Crop dimension for training
 pre_scale = 1 # Prescale in training
 lr = 1e-4 / 2 #/8  # learning rate
 ds_cache = 1000
@@ -70,10 +70,19 @@ cudnn.benchmark = True
 checkpoint_saved = False
 checkpoint_ram = {}
 
+def store_checkpoint(epoch, gen, disc, optimizer_d, optimizer_g, min_loss):
+    global checkpoint_ram
+    checkpoint_ram = {'epoch': epoch,
+                    'gen': gen,
+                    'disc': disc,
+                    'optimizer_g': optimizer_g,
+                    'optimizer_d': optimizer_d,
+                    'loss' : min_loss}
+
 def save_checkpoint_on_exit(signum, frame):
     global checkpoint_saved
 
-    if not checkpoint_saved and not test:
+    if not checkpoint_saved and not test and checkpoint_ram:
         print("Saving checkpoint...")
         torch.save(checkpoint_ram, model_name)  
         checkpoint_saved = True  
@@ -160,7 +169,7 @@ def main():
         train_dataset = ImageDataset("DIV2K", ds_train, scaling_factor, pre_scale, crop_size, ds_cache)
     if(test):
         for i in range(50):
-            compare_images(train_dataset, gen, device, i + 20, scaling_factor)
+            compare_images(train_dataset, gen, device, i + 40, scaling_factor)
             #c = input("Enter E to exit or enter to continue: ")
             #if(c == 'e'): break
         return
@@ -228,13 +237,7 @@ def main():
             )
         if(loss < 1000 * min_loss):
             min_loss = min(loss, min_loss)
-            checkpoint_ram = {'epoch': epoch,
-                                'gen': gen,
-                                'disc': disc,
-                                'optimizer_g': optimizer_g,
-                                'optimizer_d': optimizer_d,
-                                'loss' : min_loss}
-        # Save checkpoint
+            store_checkpoint(epoch,gen,disc,optimizer_d,optimizer_g, min_loss)
         else:
             print("Loss has exploded ! Try tweaking the learning rate")
             break
@@ -304,7 +307,7 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
         loss_dis = a_loss.item()
         ratio = loss_gen / loss_dis
         for g in optimizer_d.param_groups:
-            g['lr'] = lr * min(1 / ratio, 2.0)
+            g['lr'] = lr * min(1 / math.sqrt(ratio), 2.0)
         #if(ratio > 10):
         #if(loss_dis < 0.1):
         #    scaler.update()

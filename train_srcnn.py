@@ -25,12 +25,12 @@ test = False # Enable test mode (show output images)
 srresnet = False # Use referential resnet
 srcnn_resnet = True # Use custom resnet
 res_blocks = 16 # Number of residual blocks in resnet
-nch = 64 # Number of channels in core layers
+nch = 96 # Number of channels in core layers
 batch_norm = True
 if srresnet:
     model_name = "auxresnet_ssae_nobn.pth"
 else:
-    model_name = "4x64mae_c5x2_rc3x16bn.pth"
+    model_name = "4x96mae_c5x2_rc3x16bn.pth"
 
 """
 4x96ssae_c5x2_rc3x16.pth = 
@@ -52,9 +52,9 @@ loss_tp = 0 # Selected loss
 
 ds_train = True # Set dataset to training mode (random crop position)
 batch_size = 8 # batch size
-crop_size = 384 # Crop dimension for training
+crop_size = 256 # Crop dimension for training
 pre_scale = 1 # Prescale in training
-lr = 3e-4 / 1 #/8  # learning rate
+lr = 2e-4 / 1 #/8  # learning rate
 
 min_loss = 1000000.0 # Minimal loss in network
 start_epoch = 0  # start at this epoch
@@ -67,13 +67,25 @@ valid_crop = 512 # Validation crop
 grad_clip = None  # clip if gradients are exploding
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 cudnn.benchmark = True
+checkpoint_saved = False
+checkpoint_ram = {}
 
+def save_checkpoint_on_exit(signum, frame):
+    global checkpoint_saved
+
+    if not checkpoint_saved and not test:
+        print("Saving checkpoint...")
+        torch.save(checkpoint_ram, model_name)  
+        checkpoint_saved = True  
+        if torch.cuda.is_available():
+            print("Clearing GPU memory...")
+            torch.cuda.empty_cache()  # Free unused GPU memory
 
 def main():
     """
     Training.
     """
-    global start_epoch, epoch, checkpoint, min_loss
+    global start_epoch, epoch, checkpoint, min_loss, checkpoint_ram
 
     # Initialize model or load checkpoint
     init_model = base_model if base_model and not test and checkpoint else model_name 
@@ -187,11 +199,10 @@ def main():
         if(loss < 5 * min_loss):
             min_loss = min(loss, min_loss)
         # Save checkpoint
-            torch.save({'epoch': epoch,
+            checkpoint_ram = {'epoch': epoch,
                         'model': model,
                         'optimizer': optimizer,
-                        'loss' : min_loss},
-                    model_name)
+                        'loss' : min_loss}
         else:
             print("Loss has exploded ! Try tweaking the learning rate")
             break
@@ -199,5 +210,12 @@ def main():
         #    compare_images(train_dataset, model, device, epoch, scaling_factor)
         
 
+
 if __name__ == '__main__':
-    main()
+    try: 
+        main()
+        save_checkpoint_on_exit(0,0)
+
+    except KeyboardInterrupt:
+        save_checkpoint_on_exit(0,0)
+

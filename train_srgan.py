@@ -6,6 +6,8 @@ import torch.backends.cudnn as cudnn
 import torch
 import torchvision
 import ssim
+import signal
+import sys
 
 from torch import nn
 from torchinfo import summary
@@ -16,7 +18,6 @@ from torch.amp import autocast, GradScaler
 from train import train, compare_images
 from utils import *
 
-
 # Data parameters
 scaling_factor = 4  # the scaling factor for the generator; the input LR images will be downsampled from the target HR images by this factor
 n_channels = 3  # number of channels in-between, i.e. the input and output channels for the residual and subpixel convolutional blocks
@@ -24,15 +25,15 @@ n_channels = 3  # number of channels in-between, i.e. the input and output chann
 # Learning parameters
 checkpoint = True  # Load checkpoint
 unfreeze = False # Unfreeze all parameters
-test = True # Enable test mode (show output images)
+test = False # Enable test mode (show output images)
 srresnet = False # Use referential resnet
 srcnn_resnet = True # Use custom resnet
 res_blocks = 16 # Number of residual blocks in resnet
 nch = 64 # Number of channels in core layers
-batch_norm = False
+batch_norm = True
 
-base_model = "final/4x96ssae_c5x2_rc3x16.pth" #"final/4x96ssae_c5x2_rc3x16.pth" #None #"4x96ssae_c5x2_c3x6.pth"
-model_name = "auxresnet_ssae_nobn.pth" if srresnet else "gan/4x96maegan_c5x2_rc3x16.pth"#"4x64maegan_c5x2_rc3x16pu.pth"
+base_model = "4x96mae_c5x2_rc3x16bn.pth" #"final/4x96ssae_c5x2_rc3x16.pth" #"final/4x96ssae_c5x2_rc3x16.pth" #None #"4x96ssae_c5x2_c3x6.pth"
+model_name = "auxresnet_ssae_nobn.pth" if srresnet else "4x96maegan_c5x2_rc3x16bn.pth"#"4x64maegan_c5x2_rc3x16pu.pth"
 aux_name = "base/c5x4.pth" # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer (doesnt improve much)
@@ -53,7 +54,7 @@ batch_size = 16 # batch size
 crop_size = 256 # Crop dimension for training
 pre_scale = 1 # Prescale in training
 lr = 1e-4 / 2 #/8  # learning rate
-ds_cache = 0
+ds_cache = 1000
 
 min_loss = 1000000.0 # Minimal loss in network
 start_epoch = 0  # start at this epoch
@@ -66,13 +67,30 @@ valid_crop = 512 # Validation crop
 grad_clip = None  # clip if gradients are exploding
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 cudnn.benchmark = True
+checkpoint_saved = False
+checkpoint_ram = {}
 
+def save_checkpoint_on_exit(signum, frame):
+    global checkpoint_saved
+
+    if not checkpoint_saved and not test:
+        print("Saving checkpoint...")
+        torch.save(checkpoint_ram, model_name)  
+        checkpoint_saved = True  
+        if torch.cuda.is_available():
+            print("Clearing GPU memory...")
+            torch.cuda.empty_cache()  # Free unused GPU memory
+
+    sys.exit(0)  # Exit the program gracefully
 
 def main():
     """
     Training.
     """
-    global start_epoch, epoch, checkpoint, min_loss
+    global start_epoch, epoch, checkpoint, min_loss, checkpoint_ram
+    # Register the signal handler for termination signals (e.g., Ctrl+C)
+    #signal.signal(signal.SIGINT, save_checkpoint_on_exit)
+    #signal.signal(signal.SIGTERM, save_checkpoint_on_exit)
 
     # Initialize gen or load checkpoint
     init_model = base_model if base_model and not test and checkpoint else model_name 
@@ -196,28 +214,27 @@ def main():
     for epoch in range(start_epoch, epochs):
         # One epoch's training
         loss = train_gan(train_loader=train_loader,
-              gen=gen,
-              disc=disc,
-              criterion=criterion,
-              adv_criterion=adv_criterion,
-              optimizer_g=optimizer_g,
-              optimizer_d=optimizer_d,
-              epoch=epoch,
-              grad_clip=grad_clip,
-              print_freq=print_freq,
-              device=device,
-              valid_ds=valid_ds
-              )
+            gen=gen,
+            disc=disc,
+            criterion=criterion,
+            adv_criterion=adv_criterion,
+            optimizer_g=optimizer_g,
+            optimizer_d=optimizer_d,
+            epoch=epoch,
+            grad_clip=grad_clip,
+            print_freq=print_freq,
+            device=device,
+            valid_ds=valid_ds
+            )
         if(loss < 1000 * min_loss):
             min_loss = min(loss, min_loss)
+            checkpoint_ram = {'epoch': epoch,
+                                'gen': gen,
+                                'disc': disc,
+                                'optimizer_g': optimizer_g,
+                                'optimizer_d': optimizer_d,
+                                'loss' : min_loss}
         # Save checkpoint
-            torch.save({'epoch': epoch,
-                        'gen': gen,
-                        'disc': disc,
-                        'optimizer_g': optimizer_g,
-                        'optimizer_d': optimizer_d,
-                        'loss' : min_loss},
-                    model_name)
         else:
             print("Loss has exploded ! Try tweaking the learning rate")
             break
@@ -333,10 +350,14 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
         f'Val loss ({val_loss:.4f})')
     # Free memory
     del lr_imgs, hr_imgs, sr_imgs, sr_disc, hr_disc
-    torch.cuda.empty_cache()
     return val_loss if valid_ds is not None else losses_c.avg
 
 if __name__ == '__main__':
-    main()
+    try: 
+        main()
+        save_checkpoint_on_exit(0,0)
+
+    except KeyboardInterrupt:
+        save_checkpoint_on_exit(0,0)
 
 

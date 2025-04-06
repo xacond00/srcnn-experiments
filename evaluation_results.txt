@@ -1,4 +1,3 @@
-./final/4x96ssae_c5x2_c3x6.pth: PSNR=24.57, SSIM=0.7702
-4x96ssae_c5x2_rc3x16.pth: PSNR=24.89, SSIM=0.7850
-./final/4x64ssae_c5x2_rc3x16.pth: PSNR=24.71, SSIM=0.7745
-./final/4x64ssae_c5x2_rc3x32.pth: PSNR=24.77, SSIM=0.7783
+./final/4x96ssae_c5x2_c3x6.pth: PSNR=24.39, SSIM=0.7877
+./final/4x96ssae_c5x2_rc3x16.pth: PSNR=24.65, SSIM=0.8012
+./final/auxresnet_ssae_nobn.pth: PSNR=24.49, SSIM=0.7904

@@ -24,13 +24,13 @@ unfreeze = False # Unfreeze all parameters
 test = False # Enable test mode (show output images)
 srresnet = False # Use referential resnet
 srcnn_resnet = True # Use custom resnet
-res_blocks = 64 # Number of residual blocks in resnet
+res_blocks = 16 # Number of residual blocks in resnet
 nch = 64 # Number of channels in core layers
-
+batch_norm = True
 if srresnet:
     model_name = "auxresnet_ssae_nobn.pth"
 else:
-    model_name = "4x64ssae_c5x2_rc3x64.pth"
+    model_name = "4x64mae_c5x2_rc3x16bn.pth"
 
 """
 4x96ssae_c5x2_rc3x16.pth = 
@@ -48,13 +48,13 @@ vgg_j = 3 # VGG_Loss conv index (in a block)
 vgg_alpha = 0.0 # Lerp mae with vgg loss
 ssim_alpha = 0.5  # Mix mae with vgg
 loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
-loss_tp = 4 # Selected loss
+loss_tp = 0 # Selected loss
 
 ds_train = True # Set dataset to training mode (random crop position)
 batch_size = 8 # batch size
 crop_size = 384 # Crop dimension for training
 pre_scale = 1 # Prescale in training
-lr = 2e-4 / 8 #/8  # learning rate
+lr = 3e-4 / 1 #/8  # learning rate
 
 min_loss = 1000000.0 # Minimal loss in network
 start_epoch = 0  # start at this epoch
@@ -79,14 +79,14 @@ def main():
     init_model = base_model if base_model and not test and checkpoint else model_name 
     if not checkpoint or not os.path.exists(init_model):
         if srresnet:
-            model = SRResNet(9, 3, nch, res_blocks, scaling_factor, aux_name, 'lin', False)
+            model = SRResNet(9, 3, nch, res_blocks, scaling_factor, aux_name, 'lin', batch_norm)
         else:
             if not srcnn_resnet:  # ESPCNN
                 layers = [(nch,5), (nch,5), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3)]
             else:  # Custom srresnet implementation
                 layers = [(nch,5), (nch,5)]
                 for i in range(res_blocks):
-                    layers.append(('res', 3))
+                    layers.append(('res', 3, batch_norm))
                 layers.append((nch, 3))
 
             last_layer = (last_ks, 'clip') if last_ks else None

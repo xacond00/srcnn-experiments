@@ -34,7 +34,7 @@ def compute_ssim(gt, pred):
 # Load models and their respective checkpoints
 def load_model(checkpoint_path):
     checkpoint = torch.load(checkpoint_path, weights_only=False)
-    model = checkpoint['model']
+    model = checkpoint['model'] if 'model' in checkpoint else checkpoint['gen']
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     model.eval()

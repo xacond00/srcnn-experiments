@@ -12,8 +12,9 @@ from torchinfo import summary
 from layers import SqrtLoss, ConvLayer
 from models import SRCNN, VGG_Loss, freeze_model, unfreeze_model, SRResNet, Discriminator
 from dataset import ImageDataset
+from torch.amp import autocast, GradScaler
 from train import train, compare_images
-
+from utils import *
 
 
 # Data parameters
@@ -23,14 +24,15 @@ n_channels = 3  # number of channels in-between, i.e. the input and output chann
 # Learning parameters
 checkpoint = True  # Load checkpoint
 unfreeze = False # Unfreeze all parameters
-test = False # Enable test mode (show output images)
+test = True # Enable test mode (show output images)
 srresnet = False # Use referential resnet
 srcnn_resnet = True # Use custom resnet
-res_blocks = 64 # Number of residual blocks in resnet
+res_blocks = 16 # Number of residual blocks in resnet
 nch = 64 # Number of channels in core layers
+batch_norm = False
 
-base_model = None #"4x96ssae_c5x2_c3x6.pth"
-model_name = "auxresnet_ssae_nobn.pth" if srresnet else "4x64ssae_c5x2_rc3x64.pth"
+base_model = "final/4x96ssae_c5x2_rc3x16.pth" #"final/4x96ssae_c5x2_rc3x16.pth" #None #"4x96ssae_c5x2_c3x6.pth"
+model_name = "auxresnet_ssae_nobn.pth" if srresnet else "gan/4x96maegan_c5x2_rc3x16.pth"#"4x64maegan_c5x2_rc3x16pu.pth"
 aux_name = "base/c5x4.pth" # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer (doesnt improve much)
@@ -41,13 +43,17 @@ vgg_j = 3 # VGG_Loss conv index (in a block)
 vgg_alpha = 0.0 # Lerp mae with vgg loss
 ssim_alpha = 0.5  # Mix mae with vgg
 loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
-loss_tp = 4 # Selected loss
+loss_tp = 0 # Selected loss
+# Gan params
+cont_alpha = 0.05 # Weight of content loss
+label_smooth = 0.05 # Label smoothing parameter
 
 ds_train = True # Set dataset to training mode (random crop position)
-batch_size = 8 # batch size
-crop_size = 384 # Crop dimension for training
+batch_size = 16 # batch size
+crop_size = 256 # Crop dimension for training
 pre_scale = 1 # Prescale in training
-lr = 2e-4 / 8 #/8  # learning rate
+lr = 1e-4 / 2 #/8  # learning rate
+ds_cache = 0
 
 min_loss = 1000000.0 # Minimal loss in network
 start_epoch = 0  # start at this epoch
@@ -55,7 +61,7 @@ iterations = 2000  # number of training iterations
 workers = 8  # number of workers for loading data in the DataLoader
 print_freq = 1000  # print training status once every __ batches
 test_crop = 1024 # Crop of test mode images
-valid_size = 8 # Validation batch
+valid_size = 0 # Validation batch
 valid_crop = 512 # Validation crop
 grad_clip = None  # clip if gradients are exploding
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -72,46 +78,58 @@ def main():
     init_model = base_model if base_model and not test and checkpoint else model_name 
     if not checkpoint or not os.path.exists(init_model):
         if srresnet: 
-            gen = SRResNet(9, 3, nch, res_blocks, scaling_factor, aux_name, 'lin', False)
+            gen = SRResNet(9, 3, nch, res_blocks, scaling_factor, aux_name, 'lin', batch_norm)
         else:
             if not srcnn_resnet:
                 layers = [(nch,5), (nch,5), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3)]#ESPCNN
             else:
                 layers = [(nch,5), (nch,5)] # Custom srresnet implementation
                 for i in range(res_blocks):
-                    layers.append(('res', 3))
+                    layers.append(('res', 3, batch_norm))
                 layers.append((nch, 3))
 
             last_layer = (last_ks, 'clip') if last_ks else None
             gen = SRCNN(layers, n_channels, ps_ks, scaling_factor, aux_name, "lrelu", last=last_layer)
-            disc = Discriminator(3, 64, 8, 1024)
-        optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),
-                                     lr=lr)
-        optimizer_d = torch.optim.Adam(params=filter(lambda p: p.requires_grad, disc.parameters()),
-                                     lr=lr)
+
+        disc = Discriminator(3, 64, 8, 1024)
+        optimizer_g = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
+        optimizer_d = torch.optim.Adam(params=filter(lambda p: p.requires_grad, disc.parameters()),lr=lr)
 
     else:
         checkpoint = torch.load(init_model, weights_only=False)
         start_epoch = checkpoint['epoch'] + 1
-        gen = checkpoint['gen']
-        disc = checkpoint['disc']
+
+        if('gen' in checkpoint):
+            gen = checkpoint['gen']
+        elif('model' in checkpoint):
+            gen = checkpoint['model']
+
+        # Allow loading models without discriminator
+        if('disc' in checkpoint):
+            disc = checkpoint['disc']
+            optimizer_d = checkpoint['optimizer_d']
+        else:
+            disc = Discriminator(3, 64, 8, 1024)
+            optimizer_d = torch.optim.Adam(params=filter(lambda p: p.requires_grad, disc.parameters()),lr=lr)
+
         min_loss = checkpoint.get('loss', min_loss)
         print("Loaded gen:", init_model, "Loss:", min_loss)
-        
         if last_ks > 0 and not hasattr(gen, 'last_layer'):
             if freeze:
                 freeze_model(gen)
             gen.last_layer = ConvLayer(3,3,last_ks,1,1,'clip')
-            optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
+            optimizer_g = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
         elif unfreeze:
             unfreeze_model(gen)
-            optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
+            optimizer_g = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
+        elif 'optimizer_g' in checkpoint:
+            #optimizer_g = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
+            optimizer_g = checkpoint['optimizer_g']
+        elif 'optimizer' in checkpoint:
+            optimizer_g = checkpoint['optimizer']
         else:
-            #optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
-            optimizer = checkpoint['optimizer']
+            optimizer_g = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
         
-        optimizer_d = checkpoint['optimizer_d']
-
 
     if not test:
         summary(gen, input_size=(batch_size, n_channels, crop_size // scaling_factor, crop_size // scaling_factor))
@@ -121,7 +139,7 @@ def main():
     if test:
         train_dataset = ImageDataset("DIV2K", False, scaling_factor, pre_scale, test_crop, 0)
     else:
-        train_dataset = ImageDataset("DIV2K", ds_train, scaling_factor, pre_scale, crop_size)
+        train_dataset = ImageDataset("DIV2K", ds_train, scaling_factor, pre_scale, crop_size, ds_cache)
     if(test):
         for i in range(50):
             compare_images(train_dataset, gen, device, i + 20, scaling_factor)
@@ -149,9 +167,12 @@ def main():
     else:
         criterion = nn.MSELoss()
     
-    for g in optimizer.param_groups:
+    for g in optimizer_g.param_groups:
         g['lr'] = lr
+    for g in optimizer_d.param_groups:
+        g['lr'] = lr * 0.5
 
+    adv_criterion = nn.BCEWithLogitsLoss().to(device)
     # Validation batch
     valid_x = []
     valid_y = []
@@ -174,11 +195,12 @@ def main():
     # Epochs
     for epoch in range(start_epoch, epochs):
         # One epoch's training
-        loss = train(train_loader=train_loader,
+        loss = train_gan(train_loader=train_loader,
               gen=gen,
               disc=disc,
               criterion=criterion,
-              optimizer=optimizer,
+              adv_criterion=adv_criterion,
+              optimizer_g=optimizer_g,
               optimizer_d=optimizer_d,
               epoch=epoch,
               grad_clip=grad_clip,
@@ -186,13 +208,14 @@ def main():
               device=device,
               valid_ds=valid_ds
               )
-        if(loss < 5 * min_loss):
+        if(loss < 1000 * min_loss):
             min_loss = min(loss, min_loss)
         # Save checkpoint
             torch.save({'epoch': epoch,
                         'gen': gen,
                         'disc': disc,
-                        'optimizer': optimizer,
+                        'optimizer_g': optimizer_g,
+                        'optimizer_d': optimizer_d,
                         'loss' : min_loss},
                     model_name)
         else:
@@ -200,14 +223,9 @@ def main():
             break
         #if(epoch % 20 == 0):
         #    compare_images(train_dataset, gen, device, epoch, scaling_factor)
-        
-
-if __name__ == '__main__':
-    main()
-
 
 # Based on: https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Super-Resolution
-def train_gan(train_loader, gen, disc, criterion, optimizer, optimizer_d, epoch, grad_clip, print_freq, device, valid_ds = None):
+def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, optimizer_d, epoch, grad_clip, print_freq, device, valid_ds = None):
     """
     One epoch's training with mixed precision, channels_last optimization, and performance improvements.
     """
@@ -216,8 +234,10 @@ def train_gan(train_loader, gen, disc, criterion, optimizer, optimizer_d, epoch,
 
     batch_time = AverageMeter()
     data_time = AverageMeter()
-    losses = AverageMeter()
-
+    losses_a = AverageMeter()
+    losses_c = AverageMeter()
+    losses_d = AverageMeter()
+    ratios = AverageMeter()
     start = time.time()
     tally = start
     # Initialize automatic mixed precision scaler
@@ -229,45 +249,94 @@ def train_gan(train_loader, gen, disc, criterion, optimizer, optimizer_d, epoch,
         # Move to GPU and convert format to channels_last
         lr_imgs = lr_imgs.to(device, non_blocking=True, memory_format=torch.channels_last)
         hr_imgs = hr_imgs.to(device, non_blocking=True, memory_format=torch.channels_last)
-
-        optimizer.zero_grad(set_to_none=True)
-
         # Mixed precision forward pass
         with autocast(device_type='cuda', dtype=torch.float16):
             sr_imgs = gen(lr_imgs)
-            loss = criterion(sr_imgs, hr_imgs)
-
-        # Mixed precision backward pass
-        scaler.scale(loss).backward()
-
-        # Gradient clipping (if needed)
+            sr_disc = disc(sr_imgs)
+            a_loss = adv_criterion(sr_disc, torch.ones_like(sr_disc))
+            if(torch.isnan(a_loss).item() == True):
+                print("Loss is NAN !")
+                continue
+                
+            c_loss = criterion(sr_imgs, hr_imgs)
+            p_loss = a_loss + c_loss * cont_alpha
+        ## Generator update
+        optimizer_g.zero_grad(set_to_none=True)
+        scaler.scale(p_loss).backward()
+              # Gradient clipping (if needed)
         if grad_clip is not None:
-            scaler.unscale_(optimizer)  # Unscale before clipping
+            scaler.unscale_(optimizer_g)  # Unscale before clipping
             torch.nn.utils.clip_grad_norm_(gen.parameters(), grad_clip)
+        
+        loss_con = c_loss.item()
+        loss_gen = a_loss.item() 
+        #if(loss_gen > 100):
+            #print("Generator too weak !")
+        #    continue
+        scaler.step(optimizer_g)
+        
+        ## Discriminator update
+        with autocast(device_type='cuda', dtype=torch.float16):
 
-        # Optimizer step with scaler
-        scaler.step(optimizer)
+            hr_disc = disc(hr_imgs)
+            sr_disc = disc(sr_imgs.detach())
+            a_loss = adv_criterion(sr_disc, torch.zeros_like(sr_disc)) + adv_criterion(hr_disc, torch.full_like(hr_disc, 1.0 - label_smooth))
+            if(torch.isnan(a_loss).item() == True):
+                print("Loss is NAN !")
+                continue
+        loss_dis = a_loss.item()
+        ratio = loss_gen / loss_dis
+        for g in optimizer_d.param_groups:
+            g['lr'] = lr * min(1 / ratio, 2.0)
+        #if(ratio > 10):
+        #if(loss_dis < 0.1):
+        #    scaler.update()
+            #print("Discriminator too strong, skipping step !")
+        #    continue
+        optimizer_d.zero_grad(set_to_none=True)
+        scaler.scale(a_loss).backward()
+
+        if grad_clip is not None:
+            scaler.unscale_(optimizer_d)  # Unscale before clipping
+            torch.nn.utils.clip_grad_norm_(disc.parameters(), grad_clip)
+        scaler.step(optimizer_d)
+
         scaler.update()
 
         # Track loss
-        losses.update(loss.item(), lr_imgs.size(0))
+        ratios.update(ratio, lr_imgs.size(0))
+        losses_c.update(loss_con, lr_imgs.size(0))
+        losses_a.update(loss_gen, lr_imgs.size(0))
+        losses_d.update(loss_dis, lr_imgs.size(0))
 
         batch_time.update(time.time() - start)
+
         start = time.time()
+
+
     if valid_ds:
         gen.eval()
         with torch.no_grad():
             val_loss = criterion(gen(valid_ds[0]), valid_ds[1]).item()
+    else:
+        val_loss = losses_c.avg
 
     tally = (time.time() - tally)
-    print(f'Epoch: [{epoch}]----'
-        f'Batch Time ({batch_time.avg:.3f})----'
-        f'Data Time ({data_time.avg:.3f})----'
-        f'Time per iter ({tally:.3f})----'
-        f'Loss ({losses.avg:.4f})----'
+    print(f'Epoch: [{epoch}]--'
+        f'Batch Time ({batch_time.avg:.3f})--'
+        f'Data Time ({data_time.avg:.3f})--'
+        f'Time per iter ({tally:.3f})--'
+        f'Loss content ({losses_c.avg:.4f})--'
+        f'Loss advers ({losses_a.avg:.4f})--'
+        f'Loss disc ({losses_d.avg:.4f})--'
+        f'Ratio ({ratios.avg:.4f})--'
         f'Val loss ({val_loss:.4f})')
     # Free memory
-    del lr_imgs, hr_imgs, sr_imgs
+    del lr_imgs, hr_imgs, sr_imgs, sr_disc, hr_disc
     torch.cuda.empty_cache()
-    return val_loss if valid_ds is not None else losses.avg
+    return val_loss if valid_ds is not None else losses_c.avg
+
+if __name__ == '__main__':
+    main()
+
 

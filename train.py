@@ -89,6 +89,8 @@ def train(train_loader, model, criterion, optimizer, epoch, grad_clip, print_fre
 
         batch_time.update(time.time() - start)
         start = time.time()
+
+    # Printing    
     if valid_ds:
         model.eval()
         with torch.no_grad():

@@ -51,7 +51,7 @@ loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
 loss_tp = 0 # Selected loss
 
 ds_train = True # Set dataset to training mode (random crop position)
-batch_size = 8 # batch size
+batch_size = 16 # batch size
 crop_size = 256 # Crop dimension for training
 pre_scale = 1 # Prescale in training
 lr = 2e-4 / 1 #/8  # learning rate

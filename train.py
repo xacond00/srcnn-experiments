@@ -53,18 +53,18 @@ def train(train_loader, model, criterion, optimizer, epoch, grad_clip, print_fre
     cpu_time = AverageMeter()
     losses = AverageMeter()
 
-    start = time.time()
     # Initialize automatic mixed precision scaler
     scaler = GradScaler()
-
-    for i, (lr_imgs, hr_imgs) in enumerate(train_loader):
-        start_iter = time.time()
-        cpu_time.update(start_iter - start)  # Time taken to load data
-        
+    data_iter = iter(train_loader)
+    t_cpu = time.time()
+    tally = t_cpu
+    for _ in range(len(train_loader)):
         # Move to GPU and convert format to channels_last
+        (lr_imgs, hr_imgs) = next(data_iter)
         lr_imgs = lr_imgs.to(device, non_blocking=True, memory_format=torch.channels_last)
         hr_imgs = hr_imgs.to(device, non_blocking=True, memory_format=torch.channels_last)
-
+        t_gpu = time.time()
+        cpu_time.update(t_gpu - t_cpu)
         optimizer.zero_grad(set_to_none=True)
 
         # Mixed precision forward pass
@@ -86,8 +86,8 @@ def train(train_loader, model, criterion, optimizer, epoch, grad_clip, print_fre
 
         # Track loss
         losses.update(loss.item(), lr_imgs.size(0))
-        start = time.time()
-        gpu_time.update(start - start_iter)
+        t_cpu = time.time()
+        gpu_time.update(t_cpu - t_gpu)
 
     # Printing    
     if valid_ds:
@@ -98,7 +98,7 @@ def train(train_loader, model, criterion, optimizer, epoch, grad_clip, print_fre
     print(f'Epoch: [{epoch}]----'
         f'GPU tm ({gpu_time.sum:.3f})----'
         f'CPU tm ({cpu_time.sum:.3f})----'
-        f'Total tm ({gpu_time.sum + cpu_time.sum:.3f})----'
+        f'Total tm ({time.time() - tally:.3f})----'
         f'Loss ({losses.avg():.4f})----'
         f'Loss val ({val_loss:.4f})')
     # Free memory

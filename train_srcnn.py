@@ -54,7 +54,12 @@ ds_train = True # Set dataset to training mode (random crop position)
 batch_size = 16 # batch size
 crop_size = 256 # Crop dimension for training
 pre_scale = 1 # Prescale in training
-lr = 2e-4 / 1 #/8  # learning rate
+lr = 2e-4 / 2 #/8  # learning rate
+try:
+    import google.colab
+    ds_cache = 10000
+except:
+    ds_cache = 0
 
 min_loss = 1000000.0 # Minimal loss in network
 start_epoch = 0  # start at this epoch
@@ -133,7 +138,7 @@ def main():
     if test:
         train_dataset = ImageDataset("DIV2K", False, scaling_factor, pre_scale, test_crop, 0)
     else:
-        train_dataset = ImageDataset("DIV2K", ds_train, scaling_factor, pre_scale, crop_size)
+        train_dataset = ImageDataset("DIV2K", ds_train, scaling_factor, pre_scale, crop_size, ds_cache)
     if(test):
         for i in range(50):
             compare_images(train_dataset, model, device, i + 20, scaling_factor)

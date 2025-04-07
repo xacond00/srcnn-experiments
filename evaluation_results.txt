@@ -1,3 +1,4 @@
-./final/4x96ssae_c5x2_c3x6.pth: PSNR=24.39, SSIM=0.7877
-./final/4x96ssae_c5x2_rc3x16.pth: PSNR=24.65, SSIM=0.8012
-./final/auxresnet_ssae_nobn.pth: PSNR=24.49, SSIM=0.7904
+4x96maegan_c5x2_rc3x16_w1.pth: PSNR=19.40, SSIM=0.5978
+4x96maegan_c5x2_rc3x16_w5b1.pth: PSNR=19.50, SSIM=0.5867
+4x96maegan_c5x2_rc3x16_w5.pth: PSNR=19.74, SSIM=0.5959
+4x96maegan_c5x2_rc3x16_w10.pth: PSNR=19.90, SSIM=0.5820

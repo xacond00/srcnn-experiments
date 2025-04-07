@@ -49,17 +49,17 @@ def train(train_loader, model, criterion, optimizer, epoch, grad_clip, print_fre
     model.train()  # Enable training mode
     #model.to(memory_format=torch.channels_last)  # Convert model to NHWC format
 
-    batch_time = AverageMeter()
-    data_time = AverageMeter()
+    gpu_time = AverageMeter()
+    cpu_time = AverageMeter()
     losses = AverageMeter()
 
     start = time.time()
-    tally = start
     # Initialize automatic mixed precision scaler
     scaler = GradScaler()
 
     for i, (lr_imgs, hr_imgs) in enumerate(train_loader):
-        data_time.update(time.time() - start)  # Time taken to load data
+        start_iter = time.time()
+        cpu_time.update(start_iter - start)  # Time taken to load data
         
         # Move to GPU and convert format to channels_last
         lr_imgs = lr_imgs.to(device, non_blocking=True, memory_format=torch.channels_last)
@@ -86,9 +86,8 @@ def train(train_loader, model, criterion, optimizer, epoch, grad_clip, print_fre
 
         # Track loss
         losses.update(loss.item(), lr_imgs.size(0))
-
-        batch_time.update(time.time() - start)
         start = time.time()
+        gpu_time.update(start - start_iter)
 
     # Printing    
     if valid_ds:
@@ -96,15 +95,13 @@ def train(train_loader, model, criterion, optimizer, epoch, grad_clip, print_fre
         with torch.no_grad():
             val_loss = criterion(model(valid_ds[0]), valid_ds[1]).item()
 
-    tally = (time.time() - tally)
     print(f'Epoch: [{epoch}]----'
-        f'Batch Time ({batch_time.avg:.3f})----'
-        f'Data Time ({data_time.avg:.3f})----'
-        f'Time per iter ({tally:.3f})----'
-        f'Loss ({losses.avg:.4f})----'
-        f'Val loss ({val_loss:.4f})')
+        f'GPU tm ({gpu_time.sum:.3f})----'
+        f'CPU tm ({cpu_time.sum:.3f})----'
+        f'Total tm ({gpu_time.sum + cpu_time.sum:.3f})----'
+        f'Loss ({losses.avg():.4f})----'
+        f'Loss val ({val_loss:.4f})')
     # Free memory
     del lr_imgs, hr_imgs, sr_imgs
-    torch.cuda.empty_cache()
-    return val_loss if valid_ds is not None else losses.avg
+    return val_loss if valid_ds is not None else losses.avg()
 

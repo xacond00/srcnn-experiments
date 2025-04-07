@@ -48,11 +48,12 @@ class ImageDataset(Dataset):
             self.cache = dict()
             self.cache_size = cache_size  # Max cached images
             self.lock = threading.Lock()  # Thread safety
+        self.img_cvt = v2.ToImage()
 
     def cached_img(self, i):
         if not self.en_cache:
             with Image.open(self.images[i]) as img:
-                return img.convert('RGB')
+                return self.img_cvt(img.convert('RGB'))
 
         with self.lock:  # Ensure thread safety
             if i in self.cache:
@@ -60,7 +61,7 @@ class ImageDataset(Dataset):
 
         # Load image from disk if not cached
         with Image.open(self.images[i]) as img:
-            img = img.convert('RGB')
+            img = self.img_cvt(img.convert('RGB'))
 
         with self.lock:
             if len(self.cache) < self.cache_size:
@@ -84,7 +85,6 @@ class ImageDataset(Dataset):
         else:
             fn_resize = v2.Identity()
         return v2.Compose([
-            v2.ToImage(),
             fn_size,
             fn_crop,
             fn_resize,
@@ -96,7 +96,7 @@ class ImageDataset(Dataset):
 
     def load_img(self, i, scale : int = 4, downscale : int = 1, crop : int = 1024, train = False):
         img = self.cached_img(i)        
-        in_size = (img.height, img.width)
+        in_size = (img.size(1), img.size(2))
         size = (crop, crop) if crop else in_size
         size = [s // downscale for s in size]
         dims = None if downscale == 1 else size

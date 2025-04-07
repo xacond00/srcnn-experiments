@@ -25,15 +25,15 @@ n_channels = 3  # number of channels in-between, i.e. the input and output chann
 # Learning parameters
 checkpoint = True  # Load checkpoint
 unfreeze = False # Unfreeze all parameters
-test = False # Enable test mode (show output images)
+test = False# Enable test mode (show output images)
 srresnet = False # Use referential resnet
 srcnn_resnet = True # Use custom resnet
 res_blocks = 16 # Number of residual blocks in resnet
 nch = 64 # Number of channels in core layers
-batch_norm = True
+batch_norm = False
 
-base_model = None #"4x96maegan_c5x2_rc3x16_ns.pth" #"4x96maegan_c5x2_rc3x16.pth" #None #"final/4x96ssae_c5x2_rc3x16.pth" #"final/4x96ssae_c5x2_rc3x16.pth" #"final/4x96ssae_c5x2_rc3x16.pth" #None #"4x96ssae_c5x2_c3x6.pth"
-model_name = "auxresnet_ssae_nobn.pth" if srresnet else "4x96maegan_c5x2_rc3x16_ns2.pth"#"4x64maegan_c5x2_rc3x16pu.pth"
+base_model = None #"4x96maegan_c5x2_rc3x16_w1.pth" #"4x96maegan_c5x2_rc3x16_w5.pth" #"4x96maegan_c5x2_rc3x16.pth" #None #"final/4x96ssae_c5x2_rc3x16.pth"
+model_name = "auxresnet_ssae_nobn.pth" if srresnet else "4x96maegan_c5x2_rc3x16bn_ns.pth"#"4x64maegan_c5x2_rc3x16pu.pth"
 aux_name = "base/c5x4.pth" # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer (doesnt improve much)
@@ -46,19 +46,20 @@ ssim_alpha = 0.5  # Mix mae with vgg
 loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
 loss_tp = 0 # Selected loss
 # Gan params
-cont_alpha = 0.05 # Weight of content loss
-label_smooth = 0.05 # Label smoothing parameter
-
+cont_alpha = 0.1 # Weight of content loss
+label_smooth = 0.01 # Label smoothing parameter
+balance_loss = True
+loss_gen_thr = 3.0 # Doesnt do anything
 ds_train = True # Set dataset to training mode (random crop position)
 batch_size = 16 # batch size
-crop_size = 192 # Crop dimension for training
+crop_size = 256 # Crop dimension for training
 pre_scale = 1 # Prescale in training
 lr = 1e-4 / 2 #/8  # learning rate
 ds_cache = 1000
 
 min_loss = 1000000.0 # Minimal loss in network
 start_epoch = 0  # start at this epoch
-iterations = 2000  # number of training iterations
+iterations = 5000  # number of training iterations
 workers = 8  # number of workers for loading data in the DataLoader
 print_freq = 1000  # print training status once every __ batches
 test_crop = 1024 # Crop of test mode images
@@ -169,7 +170,7 @@ def main():
         train_dataset = ImageDataset("DIV2K", ds_train, scaling_factor, pre_scale, crop_size, ds_cache)
     if(test):
         for i in range(50):
-            compare_images(train_dataset, gen, device, i + 40, scaling_factor)
+            compare_images(train_dataset, gen, device, i + 100, scaling_factor)
             #c = input("Enter E to exit or enter to continue: ")
             #if(c == 'e'): break
         return
@@ -252,20 +253,19 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
     gen.train()  # Enable training mode
     #gen.to(memory_format=torch.channels_last)  # Convert gen to NHWC format
 
-    batch_time = AverageMeter()
-    data_time = AverageMeter()
+    gpu_time = AverageMeter()
+    cpu_time = AverageMeter()
     losses_a = AverageMeter()
     losses_c = AverageMeter()
     losses_d = AverageMeter()
     ratios = AverageMeter()
     start = time.time()
-    tally = start
     # Initialize automatic mixed precision scaler
     scaler = GradScaler()
 
     for i, (lr_imgs, hr_imgs) in enumerate(train_loader):
-        data_time.update(time.time() - start)  # Time taken to load data
-        
+        start_iter = time.time()
+        cpu_time.update(start_iter - start)  # Time taken to load data
         # Move to GPU and convert format to channels_last
         lr_imgs = lr_imgs.to(device, non_blocking=True, memory_format=torch.channels_last)
         hr_imgs = hr_imgs.to(device, non_blocking=True, memory_format=torch.channels_last)
@@ -276,6 +276,12 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
             a_loss = adv_criterion(sr_disc, torch.ones_like(sr_disc))
             if(torch.isnan(a_loss).item() == True):
                 print("Loss is NAN !")
+                start = time.time()
+                gpu_time.update(start - start_iter)
+                ratios.update(0.00001, 0.00001)
+                losses_c.update(loss_con, lr_imgs.size(0))
+                losses_a.update(loss_gen, lr_imgs.size(0))
+                losses_d.update(0.00001, 0.00001)
                 continue
                 
             c_loss = criterion(sr_imgs, hr_imgs)
@@ -289,12 +295,22 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
             torch.nn.utils.clip_grad_norm_(gen.parameters(), grad_clip)
         
         loss_con = c_loss.item()
-        loss_gen = a_loss.item() 
-        #if(loss_gen > 100):
-            #print("Generator too weak !")
-        #    continue
+        loss_gen = a_loss.item()
         scaler.step(optimizer_g)
-        
+
+        """ if(loss_gen > 3):
+            scaler.update()
+            start = time.time()
+            gpu_time.update(start - start_iter)
+            ratios.update(0.00001, 0.00001)
+            losses_c.update(loss_con, lr_imgs.size(0))
+            losses_a.update(loss_gen, lr_imgs.size(0))
+            losses_d.update(0.00001, 0.00001)
+            #print("Generator too weak !")
+            continue """
+        #ratio = 0
+        #loss_dis = 0
+        #if loss_gen < loss_gen_thr:
         ## Discriminator update
         with autocast(device_type='cuda', dtype=torch.float16):
 
@@ -306,8 +322,9 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
                 continue
         loss_dis = a_loss.item()
         ratio = loss_gen / loss_dis
-        for g in optimizer_d.param_groups:
-            g['lr'] = lr * min(1 / math.sqrt(ratio), 2.0)
+        if balance_loss:
+            for g in optimizer_d.param_groups:
+                g['lr'] = lr * max(min(1 / math.sqrt(ratio), 2.0), 0.1)
         #if(ratio > 10):
         #if(loss_dis < 0.1):
         #    scaler.update()
@@ -329,9 +346,8 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
         losses_a.update(loss_gen, lr_imgs.size(0))
         losses_d.update(loss_dis, lr_imgs.size(0))
 
-        batch_time.update(time.time() - start)
-
         start = time.time()
+        gpu_time.update(start - start_iter)
 
 
     if valid_ds:
@@ -339,21 +355,24 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
         with torch.no_grad():
             val_loss = criterion(gen(valid_ds[0]), valid_ds[1]).item()
     else:
-        val_loss = losses_c.avg
+        val_loss = losses_c.avg()
 
-    tally = (time.time() - tally)
     print(f'Epoch: [{epoch}]--'
-        f'Batch Time ({batch_time.avg:.3f})--'
-        f'Data Time ({data_time.avg:.3f})--'
-        f'Time per iter ({tally:.3f})--'
-        f'Loss content ({losses_c.avg:.4f})--'
-        f'Loss advers ({losses_a.avg:.4f})--'
-        f'Loss disc ({losses_d.avg:.4f})--'
-        f'Ratio ({ratios.avg:.4f})--'
-        f'Val loss ({val_loss:.4f})')
+        f'GPU tm ({gpu_time.sum:.3f})----'
+        f'CPU tm ({cpu_time.sum:.3f})----'
+        f'Total tm ({gpu_time.sum + cpu_time.sum:.3f})----'
+        f'Loss cont ({losses_c.avg():.4f})--'
+        f'Loss adve ({losses_a.avg():.4f})--'
+        f'Loss disc ({losses_d.avg():.4f})--'
+        f'Ratio ({ratios.avg():.4f})--'
+        f'Loss val ({val_loss:.4f})')
     # Free memory
-    del lr_imgs, hr_imgs, sr_imgs, sr_disc, hr_disc
-    return val_loss if valid_ds is not None else losses_c.avg
+    if 'hr_disc' in locals():
+        del lr_imgs, hr_imgs, sr_imgs, sr_disc, hr_disc
+    else:
+        del lr_imgs, hr_imgs, sr_imgs, sr_disc
+
+    return val_loss if valid_ds is not None else losses_c.avg()
 
 if __name__ == '__main__':
     try: 

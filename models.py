@@ -55,8 +55,8 @@ class SRCNN(nn.Module):
         self.conv_layers = nn.Sequential(*conv_layers)
         self.upsc_layer = ShufConvLayer(prev_ch, n_channels, out_ks, scaling_factor, 1, "linear")
         #self.last_layer = None
-        if(last):
-            self.last_layer = ConvLayer(n_channels, n_channels, last[0], 1, 1, last[1])
+        if(last != 0):
+            self.last_layer = ConvLayer(n_channels, n_channels, last[0], 1, 1, last[1]) if last[0] > 0 else ActivLayer('clip')
         if(aux_upscaler):
             au = aux_upscaler
             if(au in {'nearest', 'bilinear', 'bicubic'}):

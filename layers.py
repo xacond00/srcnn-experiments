@@ -32,8 +32,8 @@ class ActivLayer(nn.Module):
             self.operation = (nn.ReLU(True))
         elif activation == 'lrelu':
             self.operation = (nn.LeakyReLU(inplace=True))
-        #elif activation == 'prelu_ch':
-        #    self.operation = (nn.PReLU())
+        elif activation == 'sigmoid':
+            self.operation = nn.Sigmoid()
         elif activation == 'tanh':
             self.operation = (nn.Tanh())
         elif activation == 'linh':

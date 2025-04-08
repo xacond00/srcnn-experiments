@@ -17,7 +17,7 @@ from dataset import ImageDataset
 from torch.amp import autocast, GradScaler
 from train import train, compare_images
 from utils import *
-
+from contextlib import nullcontext
 # Data parameters
 scaling_factor = 4  # the scaling factor for the generator; the input LR images will be downsampled from the target HR images by this factor
 n_channels = 3  # number of channels in-between, i.e. the input and output channels for the residual and subpixel convolutional blocks
@@ -25,15 +25,15 @@ n_channels = 3  # number of channels in-between, i.e. the input and output chann
 # Learning parameters
 checkpoint = True  # Load checkpoint
 unfreeze = False # Unfreeze all parameters
-test = False# Enable test mode (show output images)
+test = True# Enable test mode (show output images)
 srresnet = False # Use referential resnet
 srcnn_resnet = True # Use custom resnet
 res_blocks = 16 # Number of residual blocks in resnet
 nch = 64 # Number of channels in core layers
 batch_norm = False
-
-base_model = None #"final/4x96ssae_c5x2_c3x6.pth" #None #"4x96maegan_c5x2_rc3x16_w1.pth" #"4x96maegan_c5x2_rc3x16_w5.pth" #"4x96maegan_c5x2_rc3x16.pth" #None #"final/4x96ssae_c5x2_rc3x16.pth"
-model_name = "auxresnet_ssae_nobn.pth" if srresnet else "4x96maegan_c5x2_rc3x16bn.pth"#"4x96maegan_c5x2_c3x6.pth" #"4x96maegan_c5x2_rc3x16bn_ns.pth"#"4x64maegan_c5x2_rc3x16pu.pth"
+# You can also input non-gan models as base to be retrained
+base_model = None #"4x96mae_c5x2_rc3x16bn.pth"
+model_name = "auxresnet_maegan.pth" if srresnet else "4x96maegan_rc3x16bn.pth"
 aux_name = "base/c5x4.pth" # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer (doesnt improve much)
@@ -45,15 +45,19 @@ vgg_alpha = 0.0 # Lerp mae with vgg loss
 ssim_alpha = 0.5  # Mix mae with vgg
 loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
 loss_tp = 0 # Selected loss
-# Gan params
+## Gan params ##
 cont_alpha = 0.1 # Weight of content loss
-label_smooth = 0.02 # Label smoothing parameter
+label_smooth = 0.0 # Label smoothing parameter
 balance_loss = True
+## Training params ##
 ds_train = True # Set dataset to training mode (random crop position)
+use_fp16 = False
 batch_size = 16 # batch size
-crop_size = 192 # Crop dimension for training
+crop_size = 128 # Crop dimension for training
 pre_scale = 1 # Prescale in training
-lr = 1e-4 / 2 #/8  # learning rate
+lr = 1e-4 #/8  # learning rate
+lr_disc = 0.1 * lr # Lr multiplier for generator
+
 try:
     import google.colab
     ds_cache = 10000
@@ -197,7 +201,7 @@ def main():
     for g in optimizer_g.param_groups:
         g['lr'] = lr
     for g in optimizer_d.param_groups:
-        g['lr'] = lr * 0.5
+        g['lr'] = lr_disc
 
     adv_criterion = nn.BCEWithLogitsLoss().to(device)
     # Validation batch
@@ -246,6 +250,7 @@ def main():
 
 # Based on: https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Super-Resolution
 def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, optimizer_d, epoch, grad_clip, print_freq, device, valid_ds = None):
+    global lr_disc
     """
     One epoch's training with mixed precision, channels_last optimization, and performance improvements.
     """
@@ -258,12 +263,12 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
     losses_a = AverageMeter()
     losses_c = AverageMeter()
     losses_d = AverageMeter()
-    ratios = AverageMeter()
     # Initialize automatic mixed precision scaler
-    scaler = GradScaler()
+    scaler = GradScaler(enabled=use_fp16)
     data_iter = iter(train_loader)
     t_cpu = time.time()
     tally = t_cpu
+    autocast_ctx = autocast(device_type='cuda', dtype=torch.float16) if use_fp16 else nullcontext()
     for _ in range(len(train_loader)):
         # Move to GPU and convert format to channels_last
         (lr_imgs, hr_imgs) = next(data_iter)
@@ -272,21 +277,22 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
         t_gpu = time.time()
         cpu_time.update(t_gpu - t_cpu)  # Time taken to load data
         # Mixed precision forward pass
-        with autocast(device_type='cuda', dtype=torch.float16):
+        with autocast_ctx: 
             sr_imgs = gen(lr_imgs)
             sr_disc = disc(sr_imgs)
             a_loss = adv_criterion(sr_disc, torch.ones_like(sr_disc))
-            if(torch.isnan(a_loss).item() == True):
-                print("Loss is NAN !")
-                gpu_time.update(start - start_iter)
-                ratios.update(0.00001, 0.00001)
-                losses_c.update(loss_con, lr_imgs.size(0))
-                losses_a.update(loss_gen, lr_imgs.size(0))
-                losses_d.update(0.00001, 0.00001)
-                continue
+
+        if(torch.isnan(a_loss).item() == True):
+            print("Loss is NAN !")
+            gpu_time.update(start - start_iter)
+            ratios.update(0.00001, 0.00001)
+            losses_c.update(loss_con, lr_imgs.size(0))
+            losses_a.update(loss_gen, lr_imgs.size(0))
+            losses_d.update(0.00001, 0.00001)
+            continue
                 
-            c_loss = criterion(sr_imgs, hr_imgs)
-            p_loss = a_loss + c_loss * cont_alpha
+        c_loss = criterion(sr_imgs, hr_imgs)
+        p_loss = a_loss + c_loss * cont_alpha
         ## Generator update
         optimizer_g.zero_grad(set_to_none=True)
         scaler.scale(p_loss).backward()
@@ -299,31 +305,23 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
         loss_gen = a_loss.item()
         scaler.step(optimizer_g)
 
-        with autocast(device_type='cuda', dtype=torch.float16):
-
+        with autocast_ctx:
             hr_disc = disc(hr_imgs)
             sr_disc = disc(sr_imgs.detach())
             a_loss = adv_criterion(sr_disc, torch.zeros_like(sr_disc)) + adv_criterion(hr_disc, torch.full_like(hr_disc, 1.0 - label_smooth))
-            if(torch.isnan(a_loss).item() == True):
-                print("Loss is NAN !")
-                continue
+
+        if(torch.isnan(a_loss).item() == True):
+            print("Loss is NAN !")
+            continue
         loss_dis = a_loss.item()
-        ratio = loss_gen / loss_dis
-        if balance_loss:
-            for g in optimizer_d.param_groups:
-                g['lr'] = lr * max(min(1 / math.sqrt(ratio), 2.0), 0.1)
         optimizer_d.zero_grad(set_to_none=True)
         scaler.scale(a_loss).backward()
-
         if grad_clip is not None:
             scaler.unscale_(optimizer_d)  # Unscale before clipping
             torch.nn.utils.clip_grad_norm_(disc.parameters(), grad_clip)
         scaler.step(optimizer_d)
-
         scaler.update()
-
         # Track loss
-        ratios.update(ratio, lr_imgs.size(0))
         losses_c.update(loss_con, lr_imgs.size(0))
         losses_a.update(loss_gen, lr_imgs.size(0))
         losses_d.update(loss_dis, lr_imgs.size(0))
@@ -338,6 +336,16 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
     else:
         val_loss = losses_c.avg()
 
+    if(balance_loss):
+        #ratio = losses_d.sum / losses_a.sum
+        l = losses_d.avg()
+        rate = 1 - 2 * max(0.5 - l, 0)
+        rate = rate * rate
+        lr_disc = rate * lr
+        #lr_disc = lr * max(min(ratio, 2.0), 0.002)
+        for g in optimizer_d.param_groups:
+            g['lr'] = lr_disc
+
     print(f'Epoch: [{epoch}]--'
         f'GPU tm ({gpu_time.sum:.3f})----'
         f'CPU tm ({cpu_time.sum:.3f})----'
@@ -345,7 +353,7 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
         f'Loss cont ({losses_c.avg():.4f})--'
         f'Loss adve ({losses_a.avg():.4f})--'
         f'Loss disc ({losses_d.avg():.4f})--'
-        f'Ratio ({ratios.avg():.4f})--'
+        f'Lr disc ({lr_disc:.2e})--'
         f'Loss val ({val_loss:.4f})')
     # Free memory
     if 'hr_disc' in locals():
@@ -354,6 +362,8 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
         del lr_imgs, hr_imgs, sr_imgs, sr_disc
 
     return val_loss if valid_ds is not None else losses_c.avg()
+
+
 
 if __name__ == '__main__':
     try: 

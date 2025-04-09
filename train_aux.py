@@ -4,7 +4,7 @@ import torch
 import ssim
 from torch import nn
 from torchinfo import summary
-from layers import ShufConvLayer, SqrtLoss
+from layers import ShufConvLayer, SqrtLoss, UpscalingBlock
 from models import VGG_Loss
 from dataset import ImageDataset
 from train import train, compare_images
@@ -12,18 +12,18 @@ from train import train, compare_images
 
 
 # Data parameters
-scaling_factor = 8  # the scaling factor for the generator; the input LR images will be downsampled from the target HR images by this factor
-kernel_size = 9
+scaling_factor = 4  # the scaling factor for the generator; the input LR images will be downsampled from the target HR images by this factor
+kernel_size = 5
 pre_scale = 1
 n_channels = 3  # number of channels in-between, i.e. the input and output channels for the residual and subpixel convolutional blocks
 n_blocks = 16  # number of residual blocks
 
 # Learning parameters
 checkpoint = True  # Load checkpoint
-test = True # Enable test mode (show output images)
+test = False # Enable test mode (show output images)
 base_model = None #f"c{kernel_size}x{scaling_factor}.pth" #"c5x64x2_rc3x5c3_s3.pth"
-model_name = f"c{kernel_size}x{scaling_factor}.pth"
-
+model_name = f"sc{kernel_size}x{scaling_factor}.pth"
+log2_upscale = True
 vgg_i = 3 # VGG_Loss maxpool index
 vgg_j = 3 # VGG_Loss conv index (in a block)
 vgg_alpha = 0.5 # Lerp mae with vgg loss
@@ -32,12 +32,20 @@ loss_tp = 0
 
 ds_train = True # Set dataset to training mode (random crop position)
 batch_size = 8 # batch size
-crop_size = 1024
+crop_size = 768
 lr = 1e-4  # learning rate
+
+try:
+    import google.colab
+    ds_cache = 'full'
+    workers = 12  # number of workers for loading data in the DataLoader
+
+except:
+    ds_cache = 1000
+    workers = 6  # number of workers for loading data in the DataLoader
 
 start_epoch = 0  # start at this epoch
 iterations = 2000  # number of training iterations
-workers = 8  # number of workers for loading data in the DataLoader
 print_freq = 1000  # print training status once every __ batches
 test_crop = 1024 # Crop of test mode images
 valid_size = 16
@@ -56,7 +64,10 @@ def main():
     # Initialize model or load checkpoint
     init_model = base_model if base_model and not test and checkpoint else model_name 
     if not checkpoint or not os.path.exists(init_model):
-        model = ShufConvLayer(n_channels, n_channels, kernel_size, scaling_factor, 1, 'clip')
+        if log2_upscale:
+            model = UpscalingBlock(n_channels, n_channels, kernel_size, scaling_factor, 1, 'lrelu', (5, 'clip'))
+        else:
+            model = ShufConvLayer(n_channels, n_channels, kernel_size, scaling_factor, 1, 'clip')
         optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, model.parameters()),
                                      lr=lr)
     else:
@@ -71,9 +82,9 @@ def main():
     # Move to default device
     model = model.to(device, memory_format=torch.channels_last)
     if test:
-        train_dataset = ImageDataset("DIV2K", False, scaling_factor, pre_scale, test_crop)
+        train_dataset = ImageDataset("DIV2K", False, scaling_factor, pre_scale, test_crop, 0)
     else:
-        train_dataset = ImageDataset("DIV2K", ds_train, scaling_factor, pre_scale, crop_size)
+        train_dataset = ImageDataset("DIV2K", ds_train, scaling_factor, pre_scale, crop_size, ds_cache)
     if(test):
         for i in range(5):
             compare_images(train_dataset, model, device, i + 105, scaling_factor)
@@ -117,7 +128,7 @@ def main():
     else: valid_ds = None
     # Custom dataloaders
     train_loader = torch.utils.data.DataLoader(train_dataset, drop_last=True, batch_size=batch_size, shuffle=True, num_workers=workers,
-                                               pin_memory=True)  # note that we're passing the collate function here
+                                               pin_memory=True,prefetch_factor=2, persistent_workers=True)  # note that we're passing the collate function here
 
     # Total number of epochs to train for
     epochs = int(iterations)

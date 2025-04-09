@@ -8,11 +8,12 @@ from torchvision.transforms import v2
 import torch
 import threading
 
+from concurrent.futures import ThreadPoolExecutor
+
 class ImageDataset(Dataset):
-    def __init__(self, dataset_name="DIV2K", train : bool = True, scale : int= 4, downscale : int = 1, crop : int = 1024, cache_size = 1000):
+    def __init__(self, dataset_name="DIV2K", train : bool = True, scale : int= 4, downscale : int = 1, crop : int = 1024, cache_size = 'full'):
         """
         Args:
-            root_dir (str): Directory to store/download datasets.
             dataset_name (str): Either 'DIV2K' or 'Flickr2K'.
             transform (callable, optional): Transform to be applied on a sample.
         """
@@ -30,7 +31,7 @@ class ImageDataset(Dataset):
             self.dataset_folder = "DIV2K/DIV2K_train_HR/"
 
         print(self.dataset_folder)
-         
+
         self.dataset_urls = {
             "DIV2K": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip",
             "DIV2KVal": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip",
@@ -43,31 +44,28 @@ class ImageDataset(Dataset):
         self.images = [os.path.join(self.dataset_folder, f) 
                             for f in os.listdir(self.dataset_folder) 
                             if f.lower().endswith(('png', 'jpg', 'jpeg'))]
+        cache_size = len(self.images) if cache_size == 'full' else min(cache_size, len(self.images))
         self.en_cache = cache_size > 0
-        if(self.en_cache):
-            self.cache = dict()
-            self.cache_size = cache_size  # Max cached images
-            self.lock = threading.Lock()  # Thread safety
         self.img_cvt = v2.ToImage()
 
+        if self.en_cache:
+            self.cache = [None] * cache_size
+            self.cache_size = cache_size
+            def load_and_convert_image(i):
+                with Image.open(self.images[i]) as img:
+                    self.cache[i] = self.img_cvt(img.convert('RGB'))
+                    
+            with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+                futures = [executor.submit(load_and_convert_image, i) for i in range(cache_size)]
+                for future in futures:
+                    future.result()
+
     def cached_img(self, i):
-        if not self.en_cache:
+        if self.en_cache and i < self.cache_size:
+            return self.cache[i]
+        else:
             with Image.open(self.images[i]) as img:
-                return self.img_cvt(img.convert('RGB'))
-
-        with self.lock:  # Ensure thread safety
-            if i in self.cache:
-                return self.cache[i]  # Return cached image
-
-        # Load image from disk if not cached
-        with Image.open(self.images[i]) as img:
-            img = self.img_cvt(img.convert('RGB'))
-
-        with self.lock:
-            if len(self.cache) < self.cache_size:
-                self.cache[i] = img
-
-        return img
+                return self.img_cvt(img.convert('RGB'))     
     
     def get_transforms(self, train, osize, dims, crop : int = 0):
         if(osize[0] < crop):

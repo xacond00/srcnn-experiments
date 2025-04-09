@@ -26,11 +26,12 @@ srresnet = False # Use referential resnet
 srcnn_resnet = True # Use custom resnet
 res_blocks = 16 # Number of residual blocks in resnet
 nch = 96 # Number of channels in core layers
-batch_norm = True
+log2_upscale = True
+batch_norm = False
 if srresnet:
     model_name = "auxresnet_ssae_nobn.pth"
 else:
-    model_name = "4x96mae_c5x2_rc3x16bn.pth"
+    model_name = "4x96mae_c5x2_rc3x16_l2.pth"
 
 """
 4x96ssae_c5x2_rc3x16.pth = 
@@ -54,17 +55,20 @@ ds_train = True # Set dataset to training mode (random crop position)
 batch_size = 16 # batch size
 crop_size = 256 # Crop dimension for training
 pre_scale = 1 # Prescale in training
-lr = 2e-4 / 2 #/8  # learning rate
+lr = 2e-4 #/8  # learning rate
 try:
     import google.colab
-    ds_cache = 10000
+    ds_cache = 'full'
+    workers = 12  # number of workers for loading data in the DataLoader
+
 except:
-    ds_cache = 0
+    ds_cache = 1000
+    workers = 6  # number of workers for loading data in the DataLoader
+
 
 min_loss = 1000000.0 # Minimal loss in network
 start_epoch = 0  # start at this epoch
 iterations = 2000  # number of training iterations
-workers = 8  # number of workers for loading data in the DataLoader
 print_freq = 1000  # print training status once every __ batches
 test_crop = 1024 # Crop of test mode images
 valid_size = 8 # Validation batch
@@ -92,11 +96,11 @@ def main():
     """
     global start_epoch, epoch, checkpoint, min_loss, checkpoint_ram
 
-    # Initialize model or load checkpoint
+    # Initialize gen or load checkpoint
     init_model = base_model if base_model and not test and checkpoint else model_name 
     if not checkpoint or not os.path.exists(init_model):
         if srresnet:
-            model = SRResNet(9, 3, nch, res_blocks, scaling_factor, aux_name, 'lin', batch_norm)
+            gen = SRResNet(9, 3, nch, res_blocks, scaling_factor, aux_name, 'lin', batch_norm)
         else:
             if not srcnn_resnet:  # ESPCNN
                 layers = [(nch,5), (nch,5), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3)]
@@ -107,41 +111,41 @@ def main():
                 layers.append((nch, 3))
 
             last_layer = (last_ks, 'clip') if last_ks else None
-            model = SRCNN(layers, n_channels, ps_ks, scaling_factor, aux_name, "lrelu", last=last_layer)
+            gen = SRCNN(layers, n_channels, ps_ks, scaling_factor, aux_name, "lrelu", log2_upscale, last=last_layer)
 
-        optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, model.parameters()),
+        optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),
                                      lr=lr)
 
     else:
         checkpoint = torch.load(init_model, weights_only=False)
         start_epoch = checkpoint['epoch'] + 1
-        model = checkpoint['model']
+        gen = checkpoint['gen'] if 'gen' in checkpoint else checkpoint['model']
         min_loss = checkpoint.get('loss', min_loss)
-        print("Loaded model:", init_model, "Loss:", min_loss)
+        print("Loaded gen:", init_model, "Loss:", min_loss)
         
-        if last_ks > 0 and not hasattr(model, 'last_layer'):
+        if last_ks > 0 and not hasattr(gen, 'last_layer'):
             if freeze:
-                freeze_model(model)
-            model.last_layer = ConvLayer(3,3,last_ks,1,1,'clip')
-            optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, model.parameters()),lr=lr)
+                freeze_model(gen)
+            gen.last_layer = ConvLayer(3,3,last_ks,1,1,'clip')
+            optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
         elif unfreeze:
-            unfreeze_model(model)
-            optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, model.parameters()),lr=lr)
+            unfreeze_model(gen)
+            optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
         else:
-            #optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, model.parameters()),lr=lr)
+            #optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
             optimizer = checkpoint['optimizer']
 
     if not test:
-        summary(model, input_size=(batch_size, n_channels, crop_size // scaling_factor, crop_size // scaling_factor))
+        summary(gen, input_size=(batch_size, n_channels, crop_size // scaling_factor, crop_size // scaling_factor))
     # Move to default device
-    model = model.to(device, memory_format=torch.channels_last)
+    gen = gen.to(device, memory_format=torch.channels_last)
     if test:
         train_dataset = ImageDataset("DIV2K", False, scaling_factor, pre_scale, test_crop, 0)
     else:
         train_dataset = ImageDataset("DIV2K", ds_train, scaling_factor, pre_scale, crop_size, ds_cache)
     if(test):
         for i in range(50):
-            compare_images(train_dataset, model, device, i + 20, scaling_factor)
+            compare_images(train_dataset, gen, device, i + 20, scaling_factor)
             #c = input("Enter E to exit or enter to continue: ")
             #if(c == 'e'): break
         return
@@ -183,7 +187,7 @@ def main():
     else: valid_ds = None
     # Custom dataloaders
     train_loader = torch.utils.data.DataLoader(train_dataset, drop_last=True, batch_size=batch_size, shuffle=True, num_workers=workers,
-                                               pin_memory=True)  # note that we're passing the collate function here
+                                               pin_memory=True, prefetch_factor=2, persistent_workers=True)  # note that we're passing the collate function here
 
     # Total number of epochs to train for
     epochs = int(iterations)
@@ -192,7 +196,7 @@ def main():
     for epoch in range(start_epoch, epochs):
         # One epoch's training
         loss = train(train_loader=train_loader,
-              model=model,
+              model=gen,
               criterion=criterion,
               optimizer=optimizer,
               epoch=epoch,
@@ -205,14 +209,14 @@ def main():
             min_loss = min(loss, min_loss)
         # Save checkpoint
             checkpoint_ram = {'epoch': epoch,
-                        'model': model,
+                        'gen': gen,
                         'optimizer': optimizer,
                         'loss' : min_loss}
         else:
             print("Loss has exploded ! Try tweaking the learning rate")
             break
         #if(epoch % 20 == 0):
-        #    compare_images(train_dataset, model, device, epoch, scaling_factor)
+        #    compare_images(train_dataset, gen, device, epoch, scaling_factor)
         
 
 

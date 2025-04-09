@@ -36,7 +36,7 @@ def unfreeze_model(model):
 
 class SRCNN(nn.Module):
 
-    def __init__(self, layers : list, n_channels = 3, out_ks = 3, scaling_factor=4, aux_upscaler = None, activation = "lrelu", last = None):
+    def __init__(self, layers : list, n_channels = 3, out_ks = 3, scaling_factor=4, aux_upscaler = None, activation = "lrelu", log2_upscale = False, last = None):
         super().__init__()
 
         # Scaling factor must be 2, 4, or 8
@@ -53,10 +53,12 @@ class SRCNN(nn.Module):
             conv_layers.append(layer)
 
         self.conv_layers = nn.Sequential(*conv_layers)
-        self.upsc_layer = ShufConvLayer(prev_ch, n_channels, out_ks, scaling_factor, 1, "linear")
-        #self.last_layer = None
-        if(last != 0):
-            self.last_layer = ConvLayer(n_channels, n_channels, last[0], 1, 1, last[1]) if last[0] > 0 else ActivLayer('clip')
+        if log2_upscale:
+            self.upsc_layer = UpscalingBlock(prev_ch, n_channels, out_ks, scaling_factor, 1, 'lrelu', last=(last if last else (5, None)))
+        else:
+            self.upsc_layer = ShufConvLayer(prev_ch, n_channels, out_ks, scaling_factor, 1, "linear")
+            if(last is not None):
+                self.last_layer = ConvLayer(n_channels, n_channels, last[0], 1, 1, last[1]) if last[0] > 0 else ActivLayer('clip')
         if(aux_upscaler):
             au = aux_upscaler
             if(au in {'nearest', 'bilinear', 'bicubic'}):

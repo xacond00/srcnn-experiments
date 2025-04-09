@@ -23,20 +23,22 @@ scaling_factor = 4  # the scaling factor for the generator; the input LR images 
 n_channels = 3  # number of channels in-between, i.e. the input and output channels for the residual and subpixel convolutional blocks
 
 # Learning parameters
+test = False# Enable test mode (show output images)
 checkpoint = True  # Load checkpoint
 unfreeze = False # Unfreeze all parameters
-test = False# Enable test mode (show output images)
 srresnet = False # Use referential resnet
 srcnn_resnet = True # Use custom resnet
 res_blocks = 16 # Number of residual blocks in resnet
 nch = 64 # Number of channels in core layers
+log2_upscale = False
 batch_norm = False
 # You can also input non-gan models as base to be retrained
-base_model = None #"4x96ssae_c5x2_rc3x16.pth"
-model_name = "auxresnet_maegan.pth" if srresnet else "4x96maegan_rc3x16_d6.pth"
+base_model = None #"base_4x96maegan_rc3x16_l2.pth" #"4x96mae_c5x2_rc3x16_l2.pth"
+model_name = "auxresnet_maegan.pth" if srresnet else "4x96maegan_rc3x16_d8.pth"
 aux_name = "base/c5x4.pth" # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer, or when negative a clip function
+del_last = False # Delete last layer
 freeze = False # Freeze the backbone when appending shuffle conv layer
 
 vgg_i = 3 # VGG_Loss maxpool index
@@ -46,9 +48,9 @@ ssim_alpha = 0.5  # Mix mae with vgg
 loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
 loss_tp = 0 # Selected loss
 ## Gan params ##
-dis_blocks = 6
+dis_blocks = 8
 cont_alpha = 0.2 # Weight of content loss
-label_smooth = 0.0 # Label smoothing parameter
+label_smooth = 0.02 # Label smoothing parameter
 balance_loss = True
 ## Training params ##
 ds_train = True # Set dataset to training mode (random crop position)
@@ -56,19 +58,22 @@ use_fp16 = False
 batch_size = 16 # batch size
 crop_size = 128 # Crop dimension for training
 pre_scale = 1 # Prescale in training
-lr = 1e-4 #/8  # learning rate
-lr_disc = lr#0.1 * lr # Base discriminator loss
+lr = 1e-4 / 2#/8  # learning rate
+lr_disc = 0.1 * lr if balance_loss else lr # Base discriminator loss
 
 try:
     import google.colab
-    ds_cache = 10000
+    ds_cache = 'full'
+    workers = 12  # number of workers for loading data in the DataLoader
+
 except:
-    ds_cache = 0
+    ds_cache = 1000
+    workers = 6  # number of workers for loading data in the DataLoader
+
 
 min_loss = 1000000.0 # Minimal loss in network
 start_epoch = 0  # start at this epoch
 iterations = 5000  # number of training iterations
-workers = 8  # number of workers for loading data in the DataLoader
 print_freq = 1000  # print training status once every __ batches
 test_crop = 1024 # Crop of test mode images
 valid_size = 0 # Validation batch
@@ -121,7 +126,7 @@ def main():
                 layers.append((nch, 3))
 
             last_layer = (last_ks, 'clip') if last_ks != 0 else None
-            gen = SRCNN(layers, n_channels, ps_ks, scaling_factor, aux_name, "lrelu", last=last_layer)
+            gen = SRCNN(layers, n_channels, ps_ks, scaling_factor, aux_name, "lrelu", log2_upscale, last=last_layer)
 
         disc = Discriminator(3, 64, dis_blocks, 1024)
         optimizer_g = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
@@ -135,7 +140,8 @@ def main():
             gen = checkpoint['gen']
         elif('model' in checkpoint):
             gen = checkpoint['model']
-
+        if(del_last):
+            delattr(gen, 'last_layer')
         # Allow loading models without discriminator
         if('disc' in checkpoint):
             disc = checkpoint['disc']
@@ -171,6 +177,8 @@ def main():
     # Move to default device
     gen = gen.to(device, memory_format=torch.channels_last)
     disc = disc.to(device, memory_format=torch.channels_last)
+    torch.compile(gen)
+    torch.compile(disc)
     if test:
         train_dataset = ImageDataset("DIV2K", False, scaling_factor, pre_scale, test_crop, 0)
     else:
@@ -183,7 +191,6 @@ def main():
         return
     
     # Select loss function
-    
     if(loss_fns[loss_tp] == 'vgg'):
         vgg = VGG_Loss('mse', vgg_i, vgg_j, vgg_alpha)
         vgg_dims = (batch_size, n_channels, crop_size, crop_size)
@@ -207,7 +214,7 @@ def main():
     for g in optimizer_d.param_groups:
         g['lr'] = lr_disc
 
-    adv_criterion = nn.BCEWithLogitsLoss().to(device)
+    adv_criterion = nn.BCEWithLogitsLoss().to(device, memory_format=torch.channels_last)
     # Validation batch
     valid_x = []
     valid_y = []
@@ -222,7 +229,7 @@ def main():
     else: valid_ds = None
     # Custom dataloaders
     train_loader = torch.utils.data.DataLoader(train_dataset, drop_last=True, batch_size=batch_size, shuffle=True, num_workers=workers,
-                                               pin_memory=True, prefetch_factor=2)  # note that we're passing the collate function here
+                                               pin_memory=True, prefetch_factor=2, persistent_workers=True)  # note that we're passing the collate function here
 
     # Total number of epochs to train for
     epochs = int(iterations)
@@ -269,13 +276,13 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
     losses_d = AverageMeter()
     # Initialize automatic mixed precision scaler
     scaler = GradScaler(enabled=use_fp16)
-    data_iter = iter(train_loader)
     t_cpu = time.time()
+    #data_iter = iter(train_loader)
     tally = t_cpu
     autocast_ctx = autocast(device_type='cuda', dtype=torch.float16) if use_fp16 else nullcontext()
-    for _ in range(len(train_loader)):
+    for (lr_imgs, hr_imgs) in train_loader:
         # Move to GPU and convert format to channels_last
-        (lr_imgs, hr_imgs) = next(data_iter)
+        #(lr_imgs, hr_imgs) = next(data_iter)
         lr_imgs = lr_imgs.to(device, non_blocking=True, memory_format=torch.channels_last)
         hr_imgs = hr_imgs.to(device, non_blocking=True, memory_format=torch.channels_last)
         t_gpu = time.time()
@@ -284,10 +291,9 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
         with autocast_ctx: 
             sr_imgs = gen(lr_imgs)
             sr_disc = disc(sr_imgs)
-            a_loss = adv_criterion(sr_disc, torch.ones_like(sr_disc))
-                
-        c_loss = criterion(sr_imgs, hr_imgs)
-        p_loss = a_loss + c_loss * cont_alpha
+            g_loss = adv_criterion(sr_disc, torch.ones_like(sr_disc))
+            c_loss = criterion(sr_imgs, hr_imgs)
+            p_loss = g_loss + c_loss * cont_alpha
         ## Generator update
         optimizer_g.zero_grad(set_to_none=True)
         scaler.scale(p_loss).backward()
@@ -296,8 +302,6 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
             scaler.unscale_(optimizer_g)  # Unscale before clipping
             torch.nn.utils.clip_grad_norm_(gen.parameters(), grad_clip)
         
-        loss_con = c_loss.item()
-        loss_gen = a_loss.item()
         scaler.step(optimizer_g)
 
         with autocast_ctx:
@@ -305,7 +309,6 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
             sr_disc = disc(sr_imgs.detach())
             a_loss = adv_criterion(sr_disc, torch.zeros_like(sr_disc)) + adv_criterion(hr_disc, torch.full_like(hr_disc, 1.0 - label_smooth))
 
-        loss_dis = a_loss.item()
         optimizer_d.zero_grad(set_to_none=True)
         scaler.scale(a_loss).backward()
         if grad_clip is not None:
@@ -314,6 +317,9 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
         scaler.step(optimizer_d)
         scaler.update()
         # Track loss
+        loss_con = c_loss.item()
+        loss_gen = g_loss.item()
+        loss_dis = a_loss.item()
         losses_c.update(loss_con, lr_imgs.size(0))
         losses_a.update(loss_gen, lr_imgs.size(0))
         losses_d.update(loss_dis, lr_imgs.size(0))
@@ -343,7 +349,7 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
         f'CPU tm ({cpu_time.sum:.3f})----'
         f'Total tm ({time.time() - tally:.3f})----'
         f'Loss cont ({losses_c.avg():.4f})--'
-        f'Loss adve ({losses_a.avg():.4f})--'
+        f'Loss gen ({losses_a.avg():.4f})--'
         f'Loss disc ({losses_d.avg():.4f})--'
         f'Lr disc ({lr_disc:.2e})--'
         f'Loss val ({val_loss:.4f})')

@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-
+from math import log2
 
 class ClipLayer(nn.Module):
     """
@@ -125,7 +125,20 @@ class ShufConvLayer2(nn.Module):
         output = self.conv(input) 
         output = self.pixel_shuffle(output)
         return self.prelu(output)
+        
+class UpscalingBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, scaling_factor, groups = 1, activation='lrelu', last=(5, None)):
+        super().__init__()
+        n_blocks = int(log2(scaling_factor))
 
+        self.shufconv_block = nn.Sequential(
+            *[ShufConvLayer(in_channels, in_channels, kernel_size, 2, 1, activation) for i
+              in range(n_blocks)])
+        self.conv_last = ConvLayer(in_channels, out_channels, last[0], 1, 1, last[1], False)
+        
+    def forward(self, input):
+        output = self.shufconv_block(input) 
+        return self.conv_last(output) 
 
 class ShufConvLayer(nn.Module):
 

@@ -55,12 +55,10 @@ def train(train_loader, model, criterion, optimizer, epoch, grad_clip, print_fre
 
     # Initialize automatic mixed precision scaler
     scaler = GradScaler()
-    data_iter = iter(train_loader)
     t_cpu = time.time()
     tally = t_cpu
-    for _ in range(len(train_loader)):
+    for (lr_imgs, hr_imgs) in train_loader:
         # Move to GPU and convert format to channels_last
-        (lr_imgs, hr_imgs) = next(data_iter)
         lr_imgs = lr_imgs.to(device, non_blocking=True, memory_format=torch.channels_last)
         hr_imgs = hr_imgs.to(device, non_blocking=True, memory_format=torch.channels_last)
         t_gpu = time.time()

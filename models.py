@@ -1,7 +1,7 @@
 # Based on: https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Super-Resolution
 import math
 from layers import *
-
+import torchvision
 """
 def freeze_model(model):
     try:

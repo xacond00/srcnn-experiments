@@ -29,36 +29,36 @@ unfreeze = False # Unfreeze all parameters
 srresnet = False # Use referential resnet
 srcnn_resnet = True # Use custom resnet
 res_blocks = 16 # Number of residual blocks in resnet
-nch = 64 # Number of channels in core layers
-log2_upscale = False
+nch = 96 # Number of channels in core layers
+log2_upscale = True
 batch_norm = False
 # You can also input non-gan models as base to be retrained
-base_model = None #"base_4x96maegan_rc3x16_l2.pth" #"4x96mae_c5x2_rc3x16_l2.pth"
-model_name = "auxresnet_maegan.pth" if srresnet else "4x96maegan_rc3x16_d8.pth"
+base_model = None #"base/4x96mae_c5x2_rc3x16_l2.pth" #"4x96mae_c5x2_rc3x16_l2.pth"
+model_name = "auxresnet_maegan.pth" if srresnet else "4x96vggan_rc3x16l2.pth"
 aux_name = "base/c5x4.pth" # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer, or when negative a clip function
 del_last = False # Delete last layer
 freeze = False # Freeze the backbone when appending shuffle conv layer
 
-vgg_i = 3 # VGG_Loss maxpool index
-vgg_j = 3 # VGG_Loss conv index (in a block)
+vgg_i = 5 # VGG_Loss maxpool index
+vgg_j = 4 # VGG_Loss conv index (in a block)
 vgg_alpha = 0.0 # Lerp mae with vgg loss
 ssim_alpha = 0.5  # Mix mae with vgg
 loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
-loss_tp = 0 # Selected loss
+loss_tp = 1 # Selected loss
 ## Gan params ##
 dis_blocks = 8
-cont_alpha = 0.2 # Weight of content loss
-label_smooth = 0.02 # Label smoothing parameter
-balance_loss = True
+cont_alpha = 0.005 # Weight of content loss
+label_smooth = 0.0 # Label smoothing parameter
+balance_loss = False
 ## Training params ##
 ds_train = True # Set dataset to training mode (random crop position)
-use_fp16 = False
+use_fp16 = True
 batch_size = 16 # batch size
-crop_size = 128 # Crop dimension for training
+crop_size = 96 # Crop dimension for training
 pre_scale = 1 # Prescale in training
-lr = 1e-4 / 2#/8  # learning rate
+lr = 1e-4 #/8  # learning rate
 lr_disc = 0.1 * lr if balance_loss else lr # Base discriminator loss
 
 try:
@@ -197,6 +197,7 @@ def main():
         vgg_inp = torch.full(vgg_dims, 0, dtype=torch.float32)
         #summary(vgg, input_data=[vgg_inp, vgg_inp])
         vgg = vgg.to(device, memory_format=torch.channels_last)
+        torch.compile(vgg)
         vgg.eval()
         criterion = vgg
     elif(loss_fns[loss_tp] == 'mae'):
@@ -277,7 +278,6 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
     # Initialize automatic mixed precision scaler
     scaler = GradScaler(enabled=use_fp16)
     t_cpu = time.time()
-    #data_iter = iter(train_loader)
     tally = t_cpu
     autocast_ctx = autocast(device_type='cuda', dtype=torch.float16) if use_fp16 else nullcontext()
     for (lr_imgs, hr_imgs) in train_loader:
@@ -303,6 +303,8 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
             torch.nn.utils.clip_grad_norm_(gen.parameters(), grad_clip)
         
         scaler.step(optimizer_g)
+        loss_gen = g_loss.item()
+        loss_con = c_loss.item()
 
         with autocast_ctx:
             hr_disc = disc(hr_imgs)
@@ -317,8 +319,6 @@ def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, op
         scaler.step(optimizer_d)
         scaler.update()
         # Track loss
-        loss_con = c_loss.item()
-        loss_gen = g_loss.item()
         loss_dis = a_loss.item()
         losses_c.update(loss_con, lr_imgs.size(0))
         losses_a.update(loss_gen, lr_imgs.size(0))

@@ -21,7 +21,7 @@ n_channels = 3  # number of channels in-between, i.e. the input and output chann
 # Learning parameters
 checkpoint = True  # Load checkpoint
 unfreeze = False # Unfreeze all parameters
-test = False # Enable test mode (show output images)
+test = True # Enable test mode (show output images)
 srresnet = False # Use referential resnet
 srcnn_resnet = True # Use custom resnet
 res_blocks = 16 # Number of residual blocks in resnet

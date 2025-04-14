@@ -7,11 +7,22 @@ from torch.utils.data import Dataset
 from torchvision.transforms import v2
 import torch
 import threading
-
+import random
 from concurrent.futures import ThreadPoolExecutor
 
+class RandomRotate90(torch.nn.Module):
+    def __init__(self, enable = True):
+        super().__init__()
+        self.enable = enable
+        self.rotates = [0, 1, 2, 3]
+
+    def forward(self, img):
+        if not self.enable: return img
+        k = random.choice(self.rotates)
+        return torch.rot90(img, k, dims=(1, 2))
+
 class ImageDataset(Dataset):
-    def __init__(self, dataset_name="DIV2K", train : bool = True, scale : int= 4, downscale : int = 1, crop : int = 1024, cache_size = 'full'):
+    def __init__(self, dataset_name="DIV2K", train : bool = True, scale : int= 4, downscale : int = 1, crop : int = 1024, cache_size = 'full', pre_crop = None):
         """
         Args:
             dataset_name (str): Either 'DIV2K' or 'Flickr2K'.
@@ -22,32 +33,44 @@ class ImageDataset(Dataset):
         self.downscale = downscale
         self.scale = scale
         self.dataset_name = dataset_name
-
+        self.dataset_urls = {
+            "DIV2K": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip",
+            "DIV2KVal": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip",
+            "Flickr2K": "https://cv.snu.ac.kr/research/EDSR/Flickr2K.tar",
+            'COCO2017V' : 'http://images.cocodataset.org/zips/val2017.zip',
+            'COCO2017T' : 'http://images.cocodataset.org/zips/test2017.zip'
+        }
+        if dataset_name not in self.dataset_urls:
+            print("Invalid dataset !")
+            exit(0)
         if dataset_name == "Flickr2K":
             self.dataset_folder = dataset_name
         elif dataset_name == "DIV2KVal":
             self.dataset_folder = "DIV2KVal/DIV2K_valid_HR/" 
+        elif dataset_name == "COCO2017V":
+            self.dataset_folder = "COCO2017V/val2017" 
+        elif dataset_name == "COCO2017T":
+            self.dataset_folder = "COCO2017T/test2017" 
         else:
             self.dataset_folder = "DIV2K/DIV2K_train_HR/"
 
         print(self.dataset_folder)
-
-        self.dataset_urls = {
-            "DIV2K": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip",
-            "DIV2KVal": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip",
-            "Flickr2K": "https://cv.snu.ac.kr/research/EDSR/Flickr2K.tar"
-        }
+        self.pre_crop = pre_crop
+        self.v2cvt = v2.ToImage()
         # Ensure dataset is available
-        if not os.path.exists(self.dataset_name):
+        if not os.path.exists(self.dataset_folder):
             self.download_and_extract()
 
         self.images = [os.path.join(self.dataset_folder, f) 
-                            for f in os.listdir(self.dataset_folder) 
+                            for f in sorted(os.listdir(self.dataset_folder))
                             if f.lower().endswith(('png', 'jpg', 'jpeg'))]
-        cache_size = len(self.images) if cache_size == 'full' else min(cache_size, len(self.images))
-        self.en_cache = cache_size > 0
-        self.img_cvt = v2.ToImage()
 
+        if(cache_size == 'full'): cache_size = len(self.images)
+        elif(cache_size == 'half'): cache_size = len(self.images) // 2
+        elif(cache_size == 'quar'): cache_size = len(self.images) // 4
+        elif(cache_size == 'eigh'): cache_size = len(self.images) // 8
+        else:  cache_size = min(cache_size, len(self.images))
+        self.en_cache = cache_size > 0
         if self.en_cache:
             self.cache = [None] * cache_size
             self.cache_size = cache_size
@@ -60,6 +83,15 @@ class ImageDataset(Dataset):
                 for future in futures:
                     future.result()
 
+    def img_cvt(self, img):
+        if self.pre_crop:
+            p = self.pre_crop
+            size = (min(img.size(1), p), min(img.size(2), p))
+            tran = v2.Compose(self.v2cvt, v2.CenterCrop(size)) 
+            return tran(img)
+        else: 
+            return self.v2cvt(img)
+
     def cached_img(self, i):
         if self.en_cache and i < self.cache_size:
             return self.cache[i]
@@ -68,7 +100,9 @@ class ImageDataset(Dataset):
                 return self.img_cvt(img.convert('RGB'))     
     
     def get_transforms(self, train, osize, dims, crop : int = 0):
-        if(osize[0] < crop):
+        if(osize[0] < crop and osize[1] < crop):
+            fn_size = v2.Resize(size=(crop, crop))
+        elif(osize[0] < crop):
             fn_size = v2.Resize(size=(crop, osize[1]))
         elif(osize[1] < crop):
             fn_size = v2.Resize(size=(osize[0], crop))
@@ -82,10 +116,12 @@ class ImageDataset(Dataset):
             fn_resize = v2.Resize(size=dims)
         else:
             fn_resize = v2.Identity()
+        fn_flip = RandomRotate90(train)
         return v2.Compose([
             fn_size,
             fn_crop,
             fn_resize,
+            fn_flip,
             v2.ToDtype(torch.float32, scale=True)
         ])
 

@@ -2,25 +2,8 @@
 import math
 from layers import *
 import torchvision
-"""
-def freeze_model(model):
-    try:
-        # Attempt to freeze all parameters of the current model
-        for param in model.parameters():
-            param.requires_grad = False
-    except Exception as e:
-        print(f"Warning: Skipping parameter freezing due to error: {e}")
-    
-    # Recursively freeze all sub-modules (for nested models)
-    try:
-        for child in model.children():
-            try:
-                freeze_model(child)
-            except Exception as e:
-                print(f"Warning: Skipping child module freezing due to error: {e}") 
-    except Exception as e:
-        print(f"Warning: Skipping child module freezing due to error: {e}")
-"""
+import torch.nn.functional as F
+
 def freeze_model(model):
     for layer in model.modules():  # Iterate through all layers
         if any(p.requires_grad for p in layer.parameters(recurse=False)):  
@@ -34,9 +17,19 @@ def unfreeze_model(model):
             for param in layer.parameters(recurse=False):
                 param.requires_grad = True
 
+@torch.compile
+def d_hinge_loss(real_pred, fake_pred):
+    real_loss = torch.mean(F.relu(1. - real_pred))
+    fake_loss = torch.mean(F.relu(1. + fake_pred))
+    return real_loss + fake_loss
+
+@torch.compile
+def g_hinge_loss(fake_pred):
+    return -torch.mean(fake_pred)
+    
 class SRCNN(nn.Module):
 
-    def __init__(self, layers : list, n_channels = 3, out_ks = 3, scaling_factor=4, aux_upscaler = None, activation = "lrelu", log2_upscale = False, last = None):
+    def __init__(self, layers : list, n_channels = 3, out_ks = 3, scaling_factor=4, aux_upscaler = None, activation = "lrelu", log2_upscale = False, output_activ = 'linear', last = None):
         super().__init__()
 
         # Scaling factor must be 2, 4, or 8
@@ -54,11 +47,11 @@ class SRCNN(nn.Module):
 
         self.conv_layers = nn.Sequential(*conv_layers)
         if log2_upscale:
-            self.upsc_layer = UpscalingBlock(prev_ch, n_channels, out_ks, scaling_factor, 1, 'lrelu', last=(last if last else (5, None)))
+            self.upsc_layer = UpscalingBlock(prev_ch, n_channels, out_ks, scaling_factor, 1, 'lrelu', last=(last if last else (5, output_activ)))
         else:
-            self.upsc_layer = ShufConvLayer(prev_ch, n_channels, out_ks, scaling_factor, 1, "linear")
+            self.upsc_layer = ShufConvLayer(prev_ch, n_channels, out_ks, scaling_factor, 1, output_activ)
             if(last is not None):
-                self.last_layer = ConvLayer(n_channels, n_channels, last[0], 1, 1, last[1]) if last[0] > 0 else ActivLayer('clip')
+                self.last_layer = ConvLayer(n_channels, n_channels, last[0], 1, 1, last[1]) if last[0] > 0 else ActivLayer(last[1])
         if(aux_upscaler):
             au = aux_upscaler
             if(au in {'nearest', 'bilinear', 'bicubic'}):
@@ -248,7 +241,7 @@ class Discriminator(nn.Module):
     The discriminator in the SRGAN, as defined in the paper.
     """
 
-    def __init__(self, kernel_size=3, n_channels=64, n_blocks=8, fc_size=1024):
+    def __init__(self, kernel_size=3, n_channels=64, n_blocks=8, fc_size=1024, snorm = False):
         """
         :param kernel_size: kernel size in all convolutional blocks
         :param n_channels: number of output channels in the first convolutional block, after which it is doubled in every 2nd block thereafter
@@ -265,9 +258,10 @@ class Discriminator(nn.Module):
         # The first convolutional block is unique because it does not employ batch normalization
         conv_blocks = list()
         for i in range(n_blocks):
-            out_channels = (n_channels if i == 0 else in_channels * 2) if i % 2 == 0 else in_channels
+            even = i % 2 == 0
+            out_channels = (n_channels if i == 0 else in_channels * 2) if even else in_channels
             conv_blocks.append(
-                ConvLayer(in_channels, out_channels, kernel_size, 1 if i % 2 == 0 else 2, 1, 'lrelu', i != 0)
+                ConvLayer(in_channels, out_channels, kernel_size, 1 if even else 2, 1, 'lrelu', i != 0)
                 )
             in_channels = out_channels
          
@@ -277,11 +271,11 @@ class Discriminator(nn.Module):
         # For the default input size of 96 and 8 convolutional blocks, this will have no effect
         self.adaptive_pool = nn.AdaptiveAvgPool2d((6, 6))
 
-        self.fc1 = nn.Linear(out_channels * 6 * 6, fc_size)
+        self.fc1 = nn.utils.spectral_norm(nn.Linear(out_channels * 6 * 6, fc_size)) if snorm else nn.Linear(out_channels * 6 * 6, fc_size)
 
         self.leaky_relu = nn.LeakyReLU(0.2)
 
-        self.fc2 = nn.Linear(1024, 1)
+        self.fc2 = nn.utils.spectral_norm(nn.Linear(fc_size, 1)) if snorm else nn.Linear(fc_size, 1)
 
         # Don't need a sigmoid layer because the sigmoid operation is performed by PyTorch's nn.BCEWithLogitsLoss()
 

@@ -7,10 +7,10 @@ from dataset import ImageDataset
 from utils import *
 import time
 
-def compare_images(ds : ImageDataset, model : nn.Module, device, idx = 0, factor = 4):
+def compare_images(ds : ImageDataset, model : nn.Module, device, idx = 0, factor = 4, downsample = 1):
     model.eval()
 
-    lr, hr = ds.load_img(idx, factor, 1, 1024, False)
+    lr, hr = ds.load_img(idx, factor, downsample, 1024, False)
     sr_in = lr.unsqueeze(0).to(device, memory_format=torch.channels_last)
     with torch.no_grad():
         sr = model(sr_in).squeeze()

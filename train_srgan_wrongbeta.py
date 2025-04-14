@@ -11,9 +11,10 @@ import signal
 import sys
 import math
 from torch import nn
+import torch.nn.functional as F
 from torchinfo import summary
 from layers import SqrtLoss, ConvLayer, ActivLayer
-from models import SRCNN, VGG_Loss, freeze_model, unfreeze_model, SRResNet, Discriminator, d_hinge_loss, g_hinge_loss
+from models import SRCNN, VGG_Loss, freeze_model, unfreeze_model, SRResNet, Discriminator
 from dataset import ImageDataset
 from torch.amp import autocast, GradScaler
 from train import train, compare_images
@@ -37,8 +38,8 @@ batch_norm = False
 output_activ = 'tanh'
 
 # You can also input non-gan models as base to be retrained
-base_model = None #"gan_base/4x128_rc3x16.pth" if 1 else None  #"working/4x96maeganh_rc3x16_d8x64b15B64.pth" 
-model_name = "auxresnet_maegan.pth" if srresnet else "best_4x96maeganh_rc3x16_d6x32b1525.pth"
+base_model =  "gan_base/4x96_rc3x16th.pth" if 1 else None
+model_name = "auxresnet_maegan.pth" if srresnet else "4x96mseganh_rc3x16th_d8x32.pth"
 aux_name = "gan_base/c5x4.pth" # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer, or when negative a clip function
@@ -47,43 +48,47 @@ freeze = False # Freeze the backbone when appending shuffle conv layer
 dataset_name = "DIV2K" #"COCO2017T"
 
 ########## Loss/Discriminator parameters #################
+
 vgg_i = 5 # VGG_Loss maxpool index
 vgg_j = 4 # VGG_Loss conv index (in a block)
 vgg_alpha = 0.0 # Lerp mae with vgg loss
 ssim_alpha = 0.5  # Mix mae with vgg
 loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
-loss_tp = 0 # Selected loss
+loss_tp = 2 # Selected loss
 closs_exit = 5 if loss_tp == 1 else 1
 dis_blocks = 8
 dis_ch = 32
 ########## Stability parameters #################
-dynamic_beta = True
-beta_min = 0.0010
-beta_max = 0.0020
-beta = 0.00
-balance_loss = True # Balance discriminator loss (gimp d_lr)
-disc_smooth = 0.7 # Smoothing factor of d_lr
-disc_skip_thr = 0.0 # Dloss threshold for skipping update in batch
-gen_skip_thr = 0.0 #1.0 # Skip disc gradient update if gen loss surpasses this value
-cont_skip_thr = 0.0 #0.2 if loss_tp == 0 else 0.5 # Skip discriminator update when content loss surpasses
 
-########## Training parameters #################
+# Content loss
+balance_cont = True # Balance content loss (increase weight with higher values)
+cont_min = 0.01 # If balance loss it's minimum contribution else it's total content loss contribution
+cont_mul = 5.0 # If balance loss is active, it multiplies content loss weight
+cont_adapt = cont_min / cont_mul # Adaptive content multuplier (don't change)
+
+label_smooth = 0.00 # Label smoothing parameter
+balance_loss = True # Balance discriminator loss (gimp d_lr)
+disc_smooth = 0.8 # Smoothing factor of d_lr
+disc_skip_thr = 0.0 # Dloss threshold for skipping update in batch
+gen_skip_thr = 3.0 #1.0
+cont_skip_thr = 0.5 #0.2 if loss_tp == 0 else 0.5
+## Training params ##
 ds_train = True # Set dataset to training mode (random crop position)
 use_fp16 = True
-batches_per_epoch = 100
-batch_size = 64 # batch size
+
+########## Training parameters #################
+batches_per_epoch = 20
+batch_size = 32 # batch size
 crop_size = 96 # Crop dimension for training
 pre_scale = 1 # Prescale in training
-lr = 1e-4 / 2 #/8  # learning rate
-lr_gen_mul = 1.0
-lr_disc_mul = 0.01 if balance_loss else 1
-lr_disc = lr * lr_disc_mul # Base discriminator loss
-min_disc_lr = 0.0001
-max_disc_lr = 1.0
-lr_disc_thr = 0.5
-lr_disc_eps = 0.1 #3e-1
+lr = 1e-4 / 5 #/8  # learning rate
+lr_disc = 0.1 * lr if balance_loss else lr # Base discriminator loss
+min_disc_lr = 0.02 ** 2
+max_disc_lr = 1.5
+disc_lr_off = 0.02
 ########## Last resort parameters #################
 pause_dtraining = False
+unexplode_closs = False
 ########## Other parameters #################
 try: # Load dataset into RAM if on Colab
     import google.colab
@@ -99,10 +104,9 @@ except:
 
 min_loss = 1000000.0 # Minimal loss in network
 start_epoch = 0  # start at this epoch
-iterations = 4000  # number of training iterations
+iterations = 3600 * 10  # number of training iterations
 print_freq = 1000  # print training status once every __ batches
 test_crop = 1024 # Crop of test mode images
-test_downsample = 1
 valid_size = 0 # Validation batch
 valid_crop = 512 # Validation crop
 grad_clip = None #0.1  # clip if gradients are exploding
@@ -110,7 +114,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 cudnn.benchmark = True
 checkpoint_ram = {}
 checkpoint_safe = io.BytesIO()
-
 
 def create_checkpoint(epoch, gen, disc, optimizer_d, optimizer_g, min_loss):
     return {'epoch': epoch,
@@ -210,7 +213,7 @@ def main():
         train_dataset = ImageDataset(dataset_name, ds_train, scaling_factor, pre_scale, crop_size, ds_cache, ds_precrop)
     if(test):
         for i in range(50):
-            compare_images(train_dataset, gen, device, i + 150, scaling_factor, test_downsample)
+            compare_images(train_dataset, gen, device, i + 100, scaling_factor)
             #c = input("Enter E to exit or enter to continue: ")
             #if(c == 'e'): break
         return
@@ -236,10 +239,11 @@ def main():
         criterion = nn.MSELoss()
     
     for g in optimizer_g.param_groups:
-        g['lr'] = lr * lr_gen_mul
+        g['lr'] = lr
     for g in optimizer_d.param_groups:
         g['lr'] = lr_disc
 
+    adv_criterion = None #nn.BCEWithLogitsLoss().to(device, memory_format=torch.channels_last)
     # Validation batch
     valid_x = []
     valid_y = []
@@ -264,11 +268,19 @@ def main():
     loss = 0.99
     fails = 0
     for epoch in range(start_epoch, epochs):
+        #use_fp16 = local_epoch >= 10
+        if(local_epoch % 100 == 0) and loss < 1:
+            checkpoint_safe = io.BytesIO()
+            print("Created backup checkpoint in epoch:", local_epoch)
+            torch.save(checkpoint_ram, checkpoint_safe)
+            checkpoint_safe.seek(0)
+            #checkpoint_safe = create_checkpoint(epoch,gen,disc,optimizer_d,optimizer_g, min_loss)
         # One epoch's training
         loss = train_gan(train_loader=train_loader,
             gen=gen,
             disc=disc,
             criterion=criterion,
+            adv_criterion=adv_criterion,
             optimizer_g=optimizer_g,
             optimizer_d=optimizer_d,
             epoch=epoch,
@@ -281,14 +293,31 @@ def main():
         if(loss < loss_thr):
             checkpoint_ram = create_checkpoint(epoch,gen,disc,optimizer_d,optimizer_g, min_loss)
             min_loss = min(loss, min_loss)
-        else: break
+        elif not unexplode_closs:
+            fails += 1
+            print(f"Loss has exploded {fails} times! Try tweaking the learning rate")
+            checkpoint_ram = None
+            with open(model_name, "wb") as f:
+                f.write(checkpoint_safe.read())
+            break
+            #if fails >= 10: break
         local_epoch += 1
         #if(epoch):
         #   compare_images(train_dataset, gen, device, epoch, scaling_factor)
         
+@torch.compile
+def d_hinge_loss(real_pred, fake_pred):
+    real_loss = torch.mean(F.relu(1. - real_pred))
+    fake_loss = torch.mean(F.relu(1. + fake_pred))
+    return real_loss + fake_loss
+
+@torch.compile
+def g_hinge_loss(fake_pred):
+    return -torch.mean(fake_pred)
+
 # Based on: https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Super-Resolution
-def train_gan(train_loader, gen, disc, criterion, optimizer_g, optimizer_d, epoch, grad_clip, print_freq, device, valid_ds = None):
-    global lr_disc, lr_disc_mul, beta
+def train_gan(train_loader, gen, disc, criterion, adv_criterion, optimizer_g, optimizer_d, epoch, grad_clip, print_freq, device, valid_ds = None):
+    global lr_disc, cont_adapt
     """
     One epoch's training with mixed precision, channels_last optimization, and performance improvements.
     """
@@ -305,11 +334,12 @@ def train_gan(train_loader, gen, disc, criterion, optimizer_g, optimizer_d, epoc
     t_cpu = time.time()
     tally = t_cpu
     autocast_ctx = autocast(device_type='cuda', dtype=torch.float16) if use_fp16 else nullcontext()
+    cont_weight = max(cont_adapt * cont_mul, cont_min) if balance_cont else cont_min
     skipped_disc = 0
     n_batches = min(len(train_loader), batches_per_epoch)
-    hr_disc = None
     for (lr_imgs, hr_imgs) in islice(train_loader, batches_per_epoch):
         # Move to GPU and convert format to channels_last
+        #(lr_imgs, hr_imgs) = next(data_iter)
         lr_imgs = lr_imgs.to(device, non_blocking=True, memory_format=torch.channels_last)
         hr_imgs = hr_imgs.to(device, non_blocking=True, memory_format=torch.channels_last)
         t_gpu = time.time()
@@ -318,18 +348,18 @@ def train_gan(train_loader, gen, disc, criterion, optimizer_g, optimizer_d, epoc
         with autocast_ctx: 
             sr_imgs = gen(lr_imgs)
             sr_disc = disc(sr_imgs)
-            g_loss = g_hinge_loss(sr_disc)
+            g_loss = g_hinge_loss(sr_disc) #adv_criterion(sr_disc, torch.ones_like(sr_disc))
             c_loss = criterion(sr_imgs, hr_imgs) 
             loss_con = c_loss.item()
-            skip_dis = (loss_con > cont_skip_thr and cont_skip_thr > 0)
+            skip_dis = unexplode_closs or (loss_con > cont_skip_thr and cont_skip_thr > 0)
             if(skip_dis):
                 p_loss = c_loss
             else:
-                p_loss = c_loss + beta * g_loss
+                p_loss = g_loss + cont_weight * c_loss
         ## Generator update
         optimizer_g.zero_grad(set_to_none=True)
         scaler.scale(p_loss).backward()
-        # Gradient clipping (if needed)
+              # Gradient clipping (if needed)
         if grad_clip is not None:
             scaler.unscale_(optimizer_g)  # Unscale before clipping
             torch.nn.utils.clip_grad_norm_(gen.parameters(), grad_clip)
@@ -338,36 +368,32 @@ def train_gan(train_loader, gen, disc, criterion, optimizer_g, optimizer_d, epoc
         loss_gen = g_loss.item()
         #loss_con = c_loss.item()
         update_dis = not skip_dis and (loss_gen < gen_skip_thr or gen_skip_thr <= 0)
-        loss_dis = 0.0
         if update_dis and not pause_dtraining:
             optimizer_d.zero_grad(set_to_none=True)
             with autocast_ctx:
                 hr_disc = disc(hr_imgs)
                 sr_disc = disc(sr_imgs.detach())
-                a_loss = d_hinge_loss(hr_disc, sr_disc)
+                a_loss = d_hinge_loss(hr_disc, sr_disc) #adv_criterion(sr_disc, torch.zeros_like(sr_disc)) + adv_criterion(hr_disc, torch.full_like(hr_disc, 1.0 - label_smooth))
             scaler.scale(a_loss).backward()
             if grad_clip is not None:
                 scaler.unscale_(optimizer_d)  # Unscale before clipping
                 torch.nn.utils.clip_grad_norm_(disc.parameters(), grad_clip)
             loss_dis = a_loss.item()
-            losses_d.update(loss_dis, lr_imgs.size(0))
             if loss_dis > disc_skip_thr or disc_skip_thr <= 0:
                 scaler.step(optimizer_d)
             else:
                 skipped_disc += 1
         else:
+            loss_dis = 0.1
             skipped_disc += 1
-            
-        if(dynamic_beta):
-            t = min(loss_dis, 1)
-            beta = beta * 0.5 + (t * beta_min + (1 - t) * beta_max) * 0.5
+
         scaler.update()
         # Track loss
         losses_c.update(loss_con, lr_imgs.size(0))
         losses_a.update(loss_gen, lr_imgs.size(0))
+        losses_d.update(loss_dis, lr_imgs.size(0))
         t_cpu = time.time()
         gpu_time.update(t_cpu - t_gpu)
-
 
     if valid_ds:
         gen.eval()
@@ -375,15 +401,16 @@ def train_gan(train_loader, gen, disc, criterion, optimizer_g, optimizer_d, epoc
             val_loss = criterion(gen(valid_ds[0]), valid_ds[1]).item()
     else:
         val_loss = losses_c.avg()
-
+    if(balance_cont):
+        cont_adapt = losses_c.avg()
     if(balance_loss):
-        l = losses_d.avg()
-        t = l if l < lr_disc_thr else 1.0
-        rate = max(min_disc_lr, min(t * t, max_disc_lr))
-        lr_disc_mul = disc_smooth * lr_disc_mul + (1 - disc_smooth) * rate
-        lr_disc = lr * lr_disc_mul
-        if(l < lr_disc_eps):
-            lr_disc = 0
+        #ratio = losses_d.sum / losses_a.sum
+        l = losses_d.avg() + disc_lr_off
+        rate = max(min_disc_lr, min(l * l, max_disc_lr))
+        #rate = 1 - 2 * max(0.5 - l, 0)
+        #rate = rate * rate
+        lr_disc = disc_smooth * lr_disc + (1 - disc_smooth) * rate * lr
+        #lr_disc = lr * max(min(ratio, 2.0), 0.002)
         for g in optimizer_d.param_groups:
             g['lr'] = lr_disc
 
@@ -395,10 +422,13 @@ def train_gan(train_loader, gen, disc, criterion, optimizer_g, optimizer_d, epoc
         f'Gloss ({losses_a.avg():.4f})--'
         f'Dloss ({losses_d.avg():.4f})--'
         f'Lr dis ({lr_disc:.2e})--'
-        f'Beta ({beta:.2e})--'
+        f'W closs ({cont_weight:.2e})--'
         f'Dskip ({skipped_disc / n_batches :.2f})')
     # Free memory
-    del lr_imgs, hr_imgs, sr_imgs, sr_disc, hr_disc
+    if 'hr_disc' in locals():
+        del lr_imgs, hr_imgs, sr_imgs, sr_disc, hr_disc
+    else:
+        del lr_imgs, hr_imgs, sr_imgs, sr_disc
 
     return val_loss if valid_ds is not None else losses_c.avg()
 

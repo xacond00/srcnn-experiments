@@ -21,17 +21,19 @@ n_channels = 3  # number of channels in-between, i.e. the input and output chann
 # Learning parameters
 checkpoint = True  # Load checkpoint
 unfreeze = False # Unfreeze all parameters
-test = True # Enable test mode (show output images)
+test = False # Enable test mode (show output images)
 srresnet = False # Use referential resnet
 srcnn_resnet = True # Use custom resnet
-res_blocks = 16 # Number of residual blocks in resnet
+res_blocks = 24 # Number of residual blocks in resnet
 nch = 96 # Number of channels in core layers
-log2_upscale = True
+log2_upscale = False
 batch_norm = False
+output_activ = 'linear'
+
 if srresnet:
-    model_name = "auxresnet_ssae_nobn.pth"
+    model_name = "auxresnet.pth"
 else:
-    model_name = "4x96mae_c5x2_rc3x16_l2.pth"
+    model_name = "gan_base/4x96_rc3x16.pth"
 
 """
 4x96ssae_c5x2_rc3x16.pth = 
@@ -40,7 +42,7 @@ Velikost Kanaly Loss _ Konvoluce Kernel x Pocet _ ResKonvoluce Kernel x Pocet . 
 
 base_model = None  # "4x96ssae_c5x2_c3x6.pth"
 aux_name = "base/c5x4.pth"  # Name of auxiliary upscaler network (or classical method like bicubic)
-ps_ks = 3  # Pre-Pixel shuffle conv kernel size
+ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0  # Add post shuffle conv layer (doesnt improve much)
 freeze = False  # Freeze the backbone when appending shuffle conv layer
 
@@ -52,10 +54,10 @@ loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
 loss_tp = 0 # Selected loss
 
 ds_train = True # Set dataset to training mode (random crop position)
-batch_size = 16 # batch size
-crop_size = 256 # Crop dimension for training
+batch_size = 64 # batch size
+crop_size = 128 # Crop dimension for training
 pre_scale = 1 # Prescale in training
-lr = 2e-4 #/8  # learning rate
+lr = 1e-4 #/8  # learning rate
 try:
     import google.colab
     ds_cache = 'full'
@@ -100,7 +102,7 @@ def main():
     init_model = base_model if base_model and not test and checkpoint else model_name 
     if not checkpoint or not os.path.exists(init_model):
         if srresnet:
-            gen = SRResNet(9, 3, nch, res_blocks, scaling_factor, aux_name, 'lin', batch_norm)
+            gen = SRResNet(9, 3, nch, res_blocks, scaling_factor, aux_name, output_activ, batch_norm)
         else:
             if not srcnn_resnet:  # ESPCNN
                 layers = [(nch,5), (nch,5), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3), (nch,3)]
@@ -111,7 +113,7 @@ def main():
                 layers.append((nch, 3))
 
             last_layer = (last_ks, 'clip') if last_ks else None
-            gen = SRCNN(layers, n_channels, ps_ks, scaling_factor, aux_name, "lrelu", log2_upscale, last=last_layer)
+            gen = SRCNN(layers, n_channels, ps_ks, scaling_factor, aux_name, "lrelu", log2_upscale, last=last_layer, output_activ=output_activ)
 
         optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),
                                      lr=lr)

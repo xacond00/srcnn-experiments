@@ -16,16 +16,6 @@ def unfreeze_model(model):
             # Only update if the layer has parameters
             for param in layer.parameters(recurse=False):
                 param.requires_grad = True
-
-@torch.compile
-def d_hinge_loss(real_pred, fake_pred):
-    real_loss = torch.mean(F.relu(1. - real_pred))
-    fake_loss = torch.mean(F.relu(1. + fake_pred))
-    return real_loss + fake_loss
-
-@torch.compile
-def g_hinge_loss(fake_pred):
-    return -torch.mean(fake_pred)
     
 class SRCNN(nn.Module):
 
@@ -236,12 +226,31 @@ class SRResNet(nn.Module):
             sr_imgs = sr_imgs + self.aux_upscaler(lr_imgs)
         return sr_imgs
 
+@torch.compile
+def d_hinge_loss(real_pred, fake_pred):
+    real_loss = torch.mean(F.relu(1. - real_pred))
+    fake_loss = torch.mean(F.relu(1. + fake_pred))
+    return real_loss + fake_loss
+
+@torch.compile
+def g_hinge_loss(fake_pred):
+    return -torch.mean(fake_pred)
+
+def d_softplus_loss(real_pred, fake_pred):
+    real_loss = torch.mean(F.softplus(-real_pred))  # softplus(-x) ≈ relu(1 - x)
+    fake_loss = torch.mean(F.softplus(fake_pred))   # softplus(x) ≈ relu(1 + x)
+    return real_loss + fake_loss
+
+@torch.compile
+def g_softplus_loss(fake_pred):
+    return torch.mean(F.softplus(-fake_pred))    
+    
 class Discriminator(nn.Module):
     """
     The discriminator in the SRGAN, as defined in the paper.
     """
 
-    def __init__(self, kernel_size=3, n_channels=64, n_blocks=8, fc_size=1024, snorm = False):
+    def __init__(self, kernel_size=3, n_channels=64, n_blocks=8, fc_size=1024, snorm = False, loss_tp = 'hinge'):
         """
         :param kernel_size: kernel size in all convolutional blocks
         :param n_channels: number of output channels in the first convolutional block, after which it is doubled in every 2nd block thereafter
@@ -276,8 +285,17 @@ class Discriminator(nn.Module):
         self.leaky_relu = nn.LeakyReLU(0.2)
 
         self.fc2 = nn.utils.spectral_norm(nn.Linear(fc_size, 1)) if snorm else nn.Linear(fc_size, 1)
-
+        self.loss_tp = loss_tp or 'hinge'
         # Don't need a sigmoid layer because the sigmoid operation is performed by PyTorch's nn.BCEWithLogitsLoss()
+    def g_loss(self, fake):
+        if 'loss_tp' == 'soft':
+            return g_softplus_loss(fake)
+        else: return g_hinge_loss(fake)
+
+    def d_loss(self, real, fake):
+        if 'loss_tp' == 'soft':
+            return d_softplus_loss(real,fake)
+        else: return d_hinge_loss(real,fake)
 
     def forward(self, imgs):
         """

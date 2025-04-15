@@ -13,7 +13,7 @@ import math
 from torch import nn
 from torchinfo import summary
 from layers import SqrtLoss, ConvLayer, ActivLayer
-from models import SRCNN, VGG_Loss, freeze_model, unfreeze_model, SRResNet, Discriminator, d_hinge_loss, g_hinge_loss
+from models import SRCNN, VGG_Loss, freeze_model, unfreeze_model, SRResNet, Discriminator
 from dataset import ImageDataset
 from torch.amp import autocast, GradScaler
 from train import train, compare_images
@@ -37,8 +37,8 @@ batch_norm = False
 output_activ = 'tanh'
 
 # You can also input non-gan models as base to be retrained
-base_model = None #"gan_base/4x128_rc3x16.pth" if 1 else None  #"working/4x96maeganh_rc3x16_d8x64b15B64.pth" 
-model_name = "auxresnet_maegan.pth" if srresnet else "best_4x96maeganh_rc3x16_d6x32b1525.pth"
+base_model = "gan_base/4x96_rc3x16.pth" if 1 else None  #"working/4x96maeganh_rc3x16_d8x64b15B64.pth" 
+model_name = "auxresnet_maegan.pth" if srresnet else "4x96maeganh_rc3x16_d8x16b12.pth"
 aux_name = "gan_base/c5x4.pth" # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer, or when negative a clip function
@@ -54,15 +54,17 @@ ssim_alpha = 0.5  # Mix mae with vgg
 loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
 loss_tp = 0 # Selected loss
 closs_exit = 5 if loss_tp == 1 else 1
+dis_specnorm = True
+dis_loss_tp = 'hinge'
 dis_blocks = 8
-dis_ch = 32
+dis_ch = 16
 ########## Stability parameters #################
 dynamic_beta = True
-beta_min = 0.0010
-beta_max = 0.0020
+beta_min = 0.0015
+beta_max = 0.0025
 beta = 0.00
 balance_loss = True # Balance discriminator loss (gimp d_lr)
-disc_smooth = 0.7 # Smoothing factor of d_lr
+disc_smooth = 0.5 # Smoothing factor of d_lr
 disc_skip_thr = 0.0 # Dloss threshold for skipping update in batch
 gen_skip_thr = 0.0 #1.0 # Skip disc gradient update if gen loss surpasses this value
 cont_skip_thr = 0.0 #0.2 if loss_tp == 0 else 0.5 # Skip discriminator update when content loss surpasses
@@ -70,18 +72,19 @@ cont_skip_thr = 0.0 #0.2 if loss_tp == 0 else 0.5 # Skip discriminator update wh
 ########## Training parameters #################
 ds_train = True # Set dataset to training mode (random crop position)
 use_fp16 = True
-batches_per_epoch = 100
 batch_size = 64 # batch size
 crop_size = 96 # Crop dimension for training
+imgs_per_epoch = 1000
+batches_per_epoch = imgs_per_epoch // batch_size
 pre_scale = 1 # Prescale in training
-lr = 1e-4 / 2 #/8  # learning rate
-lr_gen_mul = 1.0
+lr = 1e-4 #/8  # learning rate
+lr_gen_mul = 1
 lr_disc_mul = 0.01 if balance_loss else 1
 lr_disc = lr * lr_disc_mul # Base discriminator loss
 min_disc_lr = 0.0001
 max_disc_lr = 1.0
-lr_disc_thr = 0.5
-lr_disc_eps = 0.1 #3e-1
+lr_disc_thr = 1.0
+lr_disc_eps = 0.3 #3e-1
 ########## Last resort parameters #################
 pause_dtraining = False
 ########## Other parameters #################
@@ -152,7 +155,7 @@ def main():
             last_layer = (last_ks, 'clip') if last_ks != 0 else None
             gen = SRCNN(layers, n_channels, ps_ks, scaling_factor, aux_name, "lrelu", log2_upscale, last=last_layer, output_activ='tanh')
 
-        disc = Discriminator(3, dis_ch, dis_blocks, 1024)
+        disc = Discriminator(3, dis_ch, dis_blocks, 1024, dis_specnorm, dis_loss_tp)
         optimizer_g = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
         optimizer_d = torch.optim.Adam(params=filter(lambda p: p.requires_grad, disc.parameters()),lr=lr)
 
@@ -172,7 +175,7 @@ def main():
             optimizer_d = checkpoint['optimizer_d']
         else:
             lr_disc = lr
-            disc = Discriminator(3, dis_ch, dis_blocks, 1024)
+            disc = Discriminator(3, dis_ch, dis_blocks, 1024, dis_specnorm, dis_loss_tp)
             optimizer_d = torch.optim.Adam(params=filter(lambda p: p.requires_grad, disc.parameters()),lr=lr)
 
         min_loss = checkpoint.get('loss', min_loss)
@@ -318,7 +321,7 @@ def train_gan(train_loader, gen, disc, criterion, optimizer_g, optimizer_d, epoc
         with autocast_ctx: 
             sr_imgs = gen(lr_imgs)
             sr_disc = disc(sr_imgs)
-            g_loss = g_hinge_loss(sr_disc)
+            g_loss = disc.g_loss(sr_disc)
             c_loss = criterion(sr_imgs, hr_imgs) 
             loss_con = c_loss.item()
             skip_dis = (loss_con > cont_skip_thr and cont_skip_thr > 0)
@@ -344,7 +347,7 @@ def train_gan(train_loader, gen, disc, criterion, optimizer_g, optimizer_d, epoc
             with autocast_ctx:
                 hr_disc = disc(hr_imgs)
                 sr_disc = disc(sr_imgs.detach())
-                a_loss = d_hinge_loss(hr_disc, sr_disc)
+                a_loss = disc.d_loss(hr_disc, sr_disc)
             scaler.scale(a_loss).backward()
             if grad_clip is not None:
                 scaler.unscale_(optimizer_d)  # Unscale before clipping

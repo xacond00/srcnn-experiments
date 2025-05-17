@@ -118,8 +118,14 @@ class ResShiftTraining:
             if self.configs.resume.endswith(".pth") and os.path.isfile(self.configs.resume):
                 return
             # soubor neexistuje, je mozne jej stahnout?
-            if self.configs.resume_url and self.configs.resume.startswith(("http://", "https://")):
-                gdown.download(self.configs.resume_url, self.configs.resume)
+            if self.configs.resume_url and self.configs.resume_url.startswith(("http://", "https://")):
+                pth = os.path.dirname(self.configs.resume)
+                if pth:
+                    os.makedirs(pth, exist_ok=True)
+                gdown.download(
+                    self.configs.resume_url, 
+                    self.configs.resume,
+                )
 
     def resume_from_ckpt(self):
         def _load_ema_state(ema_state, ckpt):
@@ -408,7 +414,10 @@ class ResShiftTraining:
         if self.configs.autoencoder is not None:
             assert self.configs.autoencoder.ckpt_path.endswith(".pth")
             # stahni autoencoder, pokud je potreba
-            if not os.path.isfile(self.configs.autoencoder):
+            if not os.path.isfile(self.configs.autoencoder.ckpt_path):
+                pth = os.path.dirname(self.configs.autoencoder.ckpt_path)
+                if pth:
+                    os.makedirs(pth, exist_ok=True)
                 gdown.download(
                     self.configs.autoencoder.ckpt_url, 
                     self.configs.autoencoder.ckpt_path,

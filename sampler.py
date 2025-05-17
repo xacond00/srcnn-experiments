@@ -15,10 +15,10 @@ from utils import util_common
 import torch
 import torch.nn.functional as F
 
-from datapipe.datasets import create_dataset
+from datapipe.base import BaseData
 from utils.util_image import ImageSpliterTh
 
-class BaseSampler:
+class ResShiftSampler:
     def __init__(
             self,
             configs,
@@ -30,12 +30,6 @@ class BaseSampler:
             padding_offset=16,
             seed=10000,
             ):
-        '''
-        Input:
-            configs: config, see the yaml file in folder ./configs/
-            sf: int, super-resolution scale
-            seed: int, random seed
-        '''
         self.configs = configs
         self.sf = sf
         self.chop_size = chop_size
@@ -44,11 +38,9 @@ class BaseSampler:
         self.seed = seed
         self.use_amp = use_amp
         self.padding_offset = padding_offset
-
-        self.setup_dist()
+        self.rank = 0
 
         self.setup_seed()
-
         self.build_model()
 
     def setup_seed(self, seed=None):
@@ -58,17 +50,10 @@ class BaseSampler:
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-    def setup_dist(self, gpu_id=None):
-        num_gpus = torch.cuda.device_count()
-        self.num_gpus = num_gpus
-        self.rank = 0
-
     def write_log(self, log_str):
-        if self.rank == 0:
-            print(log_str, flush=True)
+        print(log_str, flush=True)
 
     def build_model(self):
-        # diffusion model
         log_str = f'Building the diffusion model with length: {self.configs.diffusion.params.steps}...'
         self.write_log(log_str)
         self.base_diffusion = util_common.instantiate_from_config(self.configs.diffusion)
@@ -115,8 +100,7 @@ class BaseSampler:
             self.autoencoder = None
 
     def load_model_lora(self, model, ckpt_path=None, tag='model'):
-        if self.rank == 0:
-            self.write_log(f'Loading {tag} from {ckpt_path}...')
+        self.write_log(f'Loading {tag} from {ckpt_path}...')
         ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.rank}")
         num_success = 0
         for key, value in model.named_parameters():
@@ -132,8 +116,6 @@ class BaseSampler:
                     value.data.copy_(ckpt[new_key])
                     num_success += 1
         assert num_success == len(ckpt)
-        if self.rank == 0:
-            self.write_log('Loaded Done')
 
     def load_model(self, model, ckpt_path=None):
         state = torch.load(ckpt_path, map_location=f"cuda:{self.rank}")
@@ -145,7 +127,6 @@ class BaseSampler:
         for params in net.parameters():
             params.requires_grad = False
 
-class ResShiftSampler(BaseSampler):
     def sample_func(self, y0, noise_repeat=False, mask=False):
         '''
         Input:
@@ -248,42 +229,26 @@ class ResShiftSampler(BaseSampler):
         in_path = Path(in_path) if not isinstance(in_path, Path) else in_path
         out_path = Path(out_path) if not isinstance(out_path, Path) else out_path
 
-        if self.rank == 0:
-            assert in_path.exists()
-            if not out_path.exists():
-                out_path.mkdir(parents=True)
+        assert in_path.exists()
+        if not out_path.exists():
+            out_path.mkdir(parents=True)
 
         if in_path.is_dir():
-            if mask_path is None:
-                data_config = {'type': 'base',
-                               'params': {'dir_path': str(in_path),
-                                          'transform_type': 'default',
-                                          'transform_kwargs': {
-                                              'mean': 0.5,
-                                              'std': 0.5,
-                                              },
-                                          'need_path': True,
-                                          'recursive': True,
-                                          'length': None,
-                                          }
-                               }
-            else:
-                data_config = {'type': 'inpainting_val',
-                               'params': {'lq_path': str(in_path),
-                                          'mask_path': mask_path,
-                                          'transform_type': 'default',
-                                          'transform_kwargs': {
-                                              'mean': 0.5,
-                                              'std': 0.5,
-                                              },
-                                          'need_path': True,
-                                          'recursive': True,
-                                          'im_exts': ['png', 'jpg', 'jpeg', 'JPEG', 'bmp', 'PNG'],
-                                          'length': None,
-                                          }
-                               }
-            dataset = create_dataset(data_config)
-            self.write_log(f'Find {len(dataset)} images in {in_path}')
+            data_config = {'type': 'base',
+                            'params': {'dir_path': str(in_path),
+                                        'transform_type': 'default',
+                                        'transform_kwargs': {
+                                            'mean': 0.5,
+                                            'std': 0.5,
+                                            },
+                                        'need_path': True,
+                                        'recursive': True,
+                                        'length': None,
+                                        }
+                            }
+
+            dataset = BaseData(**data_config["params"])
+            self.write_log(f'Found {len(dataset)} images in {in_path}')
             dataloader = torch.utils.data.DataLoader(
                     dataset,
                     batch_size=bs,
@@ -322,9 +287,3 @@ class ResShiftSampler(BaseSampler):
             im_sr = util_image.tensor2img(im_sr_tensor, rgb2bgr=True, min_max=(0.0, 1.0))
             im_path = out_path / f"{in_path.stem}.png"
             util_image.imwrite(im_sr, im_path, chn='bgr', dtype_in='uint8')
-
-        self.write_log(f"Processing done, enjoy the results in {str(out_path)}")
-
-if __name__ == '__main__':
-    pass
-

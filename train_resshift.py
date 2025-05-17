@@ -307,7 +307,7 @@ class ResShiftTraining:
         else:
             img_size = self.configs.model.params.image_size
             img_chann = self.configs.model.params.in_channels
-            input_res = (img_chann, img_size, img_size)
+            input_res = (img_chann * 2, img_size, img_size)  # unet - L892
 
             # Compute FLOPs and params
             with torch.no_grad():
@@ -318,7 +318,7 @@ class ResShiftTraining:
                     print_per_layer_stat=False, 
                     verbose=False,
                 )
-            print(f"GFLOPs: {float(macs.split('  ')[0]) * 2.0}")
+            print(f"GFLOPs: {float(macs.split(' ')[0]) * 2.0}")
             print(f"Parameters: {params}")
 
         # close the tensorboard
@@ -505,12 +505,12 @@ class ResShiftTraining:
         if self.configs.autoencoder.params.lora_tune_decoder or self.configs.autoencoder.tune_decoder:
             self.freeze_model(self.model)
 
-        # LPIPS metric
+        # pro LPIPS to bere jako vychozi natrenovanou vgg
         if hasattr(self.configs, 'lpips'):
             lpips_net = self.configs.lpips.net
         else:
             lpips_net = 'vgg'
-        self.logger.info(f"Loading LIIPS Metric: {lpips_net}...")
+        self.logger.info(f"Loading LPIPS Metric: {lpips_net}...")
         lpips_loss = lpips.LPIPS(net=lpips_net).to(f"cuda:{self.rank}")
         for params in lpips_loss.parameters():
             params.requires_grad_(False)

@@ -34,6 +34,7 @@ class ImageDataset(Dataset):
         self.scale = scale
         self.dataset_name = dataset_name
         self.dataset_urls = {
+            "CUSTOM" : "CUSTOM", 
             "DIV2K": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip",
             "DIV2KVal": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip",
             "Flickr2K": "https://cv.snu.ac.kr/research/EDSR/Flickr2K.tar",
@@ -51,8 +52,10 @@ class ImageDataset(Dataset):
             self.dataset_folder = "COCO2017V/val2017" 
         elif dataset_name == "COCO2017T":
             self.dataset_folder = "COCO2017T/test2017" 
-        else:
+        elif dataset_name == "DIV2K":
             self.dataset_folder = "DIV2K/DIV2K_train_HR/"
+        else:
+            self.dataset_folder = "CUSTOM"
 
         print(self.dataset_folder)
         self.pre_crop = pre_crop
@@ -116,7 +119,7 @@ class ImageDataset(Dataset):
             fn_resize = v2.Resize(size=dims)
         else:
             fn_resize = v2.Identity()
-        fn_flip = RandomRotate90(train)
+        fn_flip = v2.Compose([RandomRotate90(), v2.RandomHorizontalFlip(), v2.RandomVerticalFlip()]) if train else v2.Identity()
         return v2.Compose([
             fn_size,
             fn_crop,

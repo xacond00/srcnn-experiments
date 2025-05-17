@@ -37,8 +37,8 @@ batch_norm = False
 output_activ = 'tanh'
 
 # You can also input non-gan models as base to be retrained
-base_model = "gan_base/4x96_rc3x16.pth" if 1 else None  #"working/4x96maeganh_rc3x16_d8x64b15B64.pth" 
-model_name = "auxresnet_maegan.pth" if srresnet else "4x96maeganh_rc3x16_d8x16b12.pth"
+base_model = "4x96maeganh_rc3x16_d8x64_1.pth" #"gan_base/4x96_rc3x16.pth" if 1 else None
+model_name = "auxresnet_maegan.pth" if srresnet else "4x96maeganh15_rc3x16_d8x64.pth"
 aux_name = "gan_base/c5x4.pth" # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0 # Add post shuffle conv layer, or when negative a clip function
@@ -54,18 +54,19 @@ ssim_alpha = 0.5  # Mix mae with vgg
 loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
 loss_tp = 0 # Selected loss
 closs_exit = 5 if loss_tp == 1 else 1
-dis_specnorm = True
+dis_specnorm = False
 dis_loss_tp = 'hinge'
 dis_blocks = 8
-dis_ch = 16
+dis_ch = 64
+dis_wd = 0 #3e-3
 ########## Stability parameters #################
 dynamic_beta = True
 beta_min = 0.0015
 beta_max = 0.0025
-beta = 0.00
+beta = 0.002
 balance_loss = True # Balance discriminator loss (gimp d_lr)
 disc_smooth = 0.5 # Smoothing factor of d_lr
-disc_skip_thr = 0.0 # Dloss threshold for skipping update in batch
+disc_skip_thr = 0.1 # Dloss threshold for skipping update in batch
 gen_skip_thr = 0.0 #1.0 # Skip disc gradient update if gen loss surpasses this value
 cont_skip_thr = 0.0 #0.2 if loss_tp == 0 else 0.5 # Skip discriminator update when content loss surpasses
 
@@ -83,27 +84,27 @@ lr_disc_mul = 0.01 if balance_loss else 1
 lr_disc = lr * lr_disc_mul # Base discriminator loss
 min_disc_lr = 0.0001
 max_disc_lr = 1.0
-lr_disc_thr = 1.0
-lr_disc_eps = 0.3 #3e-1
+lr_disc_thr = 0.5
+lr_disc_eps = 0 #0.1 #3e-1
 ########## Last resort parameters #################
 pause_dtraining = False
 ########## Other parameters #################
+
 try: # Load dataset into RAM if on Colab
     import google.colab
     ds_cache = 'full'
     ds_precrop = None
-    workers = 12  # number of workers for loading data in the DataLoader
+    workers = 10  # number of workers for loading data in the DataLoader
 
 except:
-    ds_cache = 'half' if dataset_name == 'COCO2017T' else 1000
+    ds_cache = 0 if dataset_name == 'COCO2017T' else 1500
     ds_precrop = None
     workers = 6  # number of workers for loading data in the DataLoader
 
 
 min_loss = 1000000.0 # Minimal loss in network
 start_epoch = 0  # start at this epoch
-iterations = 4000  # number of training iterations
-print_freq = 1000  # print training status once every __ batches
+iterations = 3000  # number of training iterations
 test_crop = 1024 # Crop of test mode images
 test_downsample = 1
 valid_size = 0 # Validation batch
@@ -157,7 +158,7 @@ def main():
 
         disc = Discriminator(3, dis_ch, dis_blocks, 1024, dis_specnorm, dis_loss_tp)
         optimizer_g = torch.optim.Adam(params=filter(lambda p: p.requires_grad, gen.parameters()),lr=lr)
-        optimizer_d = torch.optim.Adam(params=filter(lambda p: p.requires_grad, disc.parameters()),lr=lr)
+        optimizer_d = torch.optim.Adam(params=filter(lambda p: p.requires_grad, disc.parameters()),lr=lr, weight_decay=dis_wd)
 
     else:
         checkpoint = torch.load(init_model, weights_only=False)
@@ -176,7 +177,7 @@ def main():
         else:
             lr_disc = lr
             disc = Discriminator(3, dis_ch, dis_blocks, 1024, dis_specnorm, dis_loss_tp)
-            optimizer_d = torch.optim.Adam(params=filter(lambda p: p.requires_grad, disc.parameters()),lr=lr)
+            optimizer_d = torch.optim.Adam(params=filter(lambda p: p.requires_grad, disc.parameters()),lr=lr, weight_decay=dis_wd)
 
         min_loss = checkpoint.get('loss', min_loss)
         print("Loaded gen:", init_model, "Loss:", min_loss)
@@ -276,7 +277,6 @@ def main():
             optimizer_d=optimizer_d,
             epoch=epoch,
             grad_clip=grad_clip,
-            print_freq=print_freq,
             device=device,
             valid_ds=valid_ds
             )
@@ -290,7 +290,7 @@ def main():
         #   compare_images(train_dataset, gen, device, epoch, scaling_factor)
         
 # Based on: https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Super-Resolution
-def train_gan(train_loader, gen, disc, criterion, optimizer_g, optimizer_d, epoch, grad_clip, print_freq, device, valid_ds = None):
+def train_gan(train_loader, gen, disc, criterion, optimizer_g, optimizer_d, epoch, grad_clip, device, valid_ds = None):
     global lr_disc, lr_disc_mul, beta
     """
     One epoch's training with mixed precision, channels_last optimization, and performance improvements.
@@ -413,7 +413,6 @@ if __name__ == '__main__':
         save_checkpoint()
 
     except KeyboardInterrupt:
-        save_checkpoint()
-
+        save_checkpoint()    
     clear_memory()
 

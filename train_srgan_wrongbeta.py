@@ -1,4 +1,4 @@
-## TODO: EVERYTHING
+## Example of how one single mistake can cause 3 weeks of headscratching
 
 import os
 import io

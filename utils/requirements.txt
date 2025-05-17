@@ -20,3 +20,4 @@ einops==0.8.1
 imageio==2.37.0
 loralib==0.1.2
 gdown
+ptflops

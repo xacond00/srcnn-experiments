@@ -3,6 +3,7 @@ import lpips
 import zipfile
 import gdown
 import numpy as np
+from ptflops import get_model_complexity_info
 from pathlib import Path
 from loguru import logger
 from copy import deepcopy
@@ -274,29 +275,51 @@ class ResShiftTraining:
         self.build_model()       # build model: self.model, self.loss
         self.setup_optimizaton() # setup optimization: self.optimzer, self.sheduler
         self.resume_from_ckpt()  # resume if necessary
-        self.build_dataloader()  # prepare data: self.dataloaders, self.datasets
+        
+        # pro gflops mereni ne
+        if self.configs.flops_only is not True:
 
-        self.model.train()
-        # num_iters_epoch = math.ceil(len(self.datasets['train']) / self.configs.train.batch[0])
-        for ii in range(self.iters_start, self.configs.train.iterations):
-            self.current_iters = ii + 1
+            self.build_dataloader()  # prepare data: self.dataloaders, self.datasets
 
-            # prepare data
-            data = self.prepare_data(next(self.dataloaders['train']))
+            self.model.train()
+            # num_iters_epoch = math.ceil(len(self.datasets['train']) / self.configs.train.batch[0])
+            for ii in range(self.iters_start, self.configs.train.iterations):
+                self.current_iters = ii + 1
 
-            # training phase
-            self.training_step(data)
+                # prepare data
+                data = self.prepare_data(next(self.dataloaders['train']))
 
-            # validation phase
-            if 'val' in self.dataloaders and (ii+1) % self.configs.train.get('val_freq', 10000) == 0:
-                self.validation()
+                # training phase
+                self.training_step(data)
 
-            #update learning rate
-            self.adjust_lr()
+                # validation phase
+                if 'val' in self.dataloaders and (ii+1) % self.configs.train.get('val_freq', 10000) == 0:
+                    self.validation()
 
-            # save checkpoint
-            if (ii+1) % self.configs.train.save_freq == 0:
-                self.save_ckpt()
+                #update learning rate
+                self.adjust_lr()
+
+                # save checkpoint
+                if (ii+1) % self.configs.train.save_freq == 0:
+                    self.save_ckpt()
+
+        # gflops only
+        else:
+            img_size = self.configs.model.params.image_size
+            img_chann = self.configs.model.params.in_channels
+            input_res = (img_chann, img_size, img_size)
+
+            # Compute FLOPs and params
+            with torch.no_grad():
+                macs, params = get_model_complexity_info(
+                    self.model, 
+                    input_res, 
+                    as_strings=True,
+                    print_per_layer_stat=False, 
+                    verbose=False,
+                )
+            print(f"GFLOPs: {float(macs.split(" ")[0]) * 2.0}")
+            print(f"Parameters: {params}")
 
         # close the tensorboard
         self.close_logger()
@@ -420,6 +443,10 @@ class ResShiftTraining:
             self.logger.info("Compiling Done")
 
         self.model = model
+
+        # pro vypocet GFLOPS
+        if self.configs.flops_only is True:
+            self.model.eval()
 
         # EMA
         if hasattr(self.configs.train, 'ema_rate'):

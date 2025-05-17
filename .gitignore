@@ -4,6 +4,7 @@
 /*.pth
 /train
 /gan
+/gan_strip
 /gan96
 /gan128
 /gan192

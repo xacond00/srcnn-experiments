@@ -1,4 +1,6 @@
-test/4x96maeganh_rc3x16_d8x64_1.pth: PSNR=25.65, SSIM=0.7448
-test/best_4x96maeganh_rc3x16_d6x32b15-25S192.pth: PSNR=24.44, SSIM=0.6967
-test/best_4x96maeganh_rc3x16_d6x32b1525.pth: PSNR=24.63, SSIM=0.7099
-test/best_4x96maeganh_rc3x16_d8x64b15B64.pth: PSNR=25.39, SSIM=0.7331
+gan_strip/s_4x96maeganh_rc3x16_d8x64b2.pth: PSNR=24.69, SSIM=0.6979
+gan_strip/s_4x96maeganh_rc3x16_d8x64b2B64.pth: PSNR=24.43, SSIM=0.7078
+gan_strip/s_awesome_4x96maeganh_rc3x16_d8x64b15B64.pth: PSNR=25.39, SSIM=0.7331
+gan_strip/s_best_4x96maeganh_rc3x16_d6x32b15-25S192.pth: PSNR=24.44, SSIM=0.6967
+gan_strip/s_best_4x96maeganh_rc3x16_d6x32b15-3.pth: PSNR=24.76, SSIM=0.7018
+gan_strip/s_best_4x96maeganh_rc3x16_d8x32b15-3.pth: PSNR=24.34, SSIM=0.6830

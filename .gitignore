@@ -5,6 +5,7 @@
 /train
 /gan
 /gan_strip
+/gan_base
 /gan96
 /gan128
 /gan192

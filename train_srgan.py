@@ -37,7 +37,7 @@ batch_norm = False
 output_activ = 'tanh'
 
 # You can also input non-gan models as base to be retrained
-base_model = "4x96maeganh_rc3x16_d8x64_1.pth" #"gan_base/4x96_rc3x16.pth" if 1 else None
+base_model = "gan_base/4x96_rc3x16.pth" if 1 else None
 model_name = "auxresnet_maegan.pth" if srresnet else "4x96maeganh15_rc3x16_d8x64.pth"
 aux_name = "gan_base/c5x4.pth" # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
@@ -60,11 +60,11 @@ dis_blocks = 8
 dis_ch = 64
 dis_wd = 0 #3e-3
 ########## Stability parameters #################
-dynamic_beta = True
+dynamic_beta = False
 beta_min = 0.0015
 beta_max = 0.0025
-beta = 0.002
-balance_loss = True # Balance discriminator loss (gimp d_lr)
+beta = 0.0015 # The larger this is, the larger weight discriminator has
+balance_loss = False # Balance discriminator loss (gimp d_lr)
 disc_smooth = 0.5 # Smoothing factor of d_lr
 disc_skip_thr = 0.1 # Dloss threshold for skipping update in batch
 gen_skip_thr = 0.0 #1.0 # Skip disc gradient update if gen loss surpasses this value
@@ -78,7 +78,7 @@ crop_size = 96 # Crop dimension for training
 imgs_per_epoch = 1000
 batches_per_epoch = imgs_per_epoch // batch_size
 pre_scale = 1 # Prescale in training
-lr = 1e-4 #/8  # learning rate
+lr = 5e-5 #/8  # learning rate
 lr_gen_mul = 1
 lr_disc_mul = 0.01 if balance_loss else 1
 lr_disc = lr * lr_disc_mul # Base discriminator loss
@@ -104,7 +104,7 @@ except:
 
 min_loss = 1000000.0 # Minimal loss in network
 start_epoch = 0  # start at this epoch
-iterations = 3000  # number of training iterations
+iterations = 2000  # number of training iterations
 test_crop = 1024 # Crop of test mode images
 test_downsample = 1
 valid_size = 0 # Validation batch

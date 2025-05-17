@@ -318,7 +318,7 @@ class ResShiftTraining:
                     print_per_layer_stat=False, 
                     verbose=False,
                 )
-            print(f"GFLOPs: {float(macs.split(" ")[0]) * 2.0}")
+            print(f"GFLOPs: {float(macs.split('  ')[0]) * 2.0}")
             print(f"Parameters: {params}")
 
         # close the tensorboard

@@ -546,7 +546,7 @@ class UNetModel(nn.Module):
             conv_nd(dims, input_ch, out_channels, 3, padding=1),
         )
 
-    def forward(self, x, timesteps, y=None, lq=None):
+    def forward(self, x, timesteps=None, y=None, lq=None):
         """
         Apply the model to an input batch.
         :param x: an [N x C x ...] Tensor of inputs.
@@ -555,6 +555,12 @@ class UNetModel(nn.Module):
         :param lq: an [N x C x ...] Tensor of low quality iamge.
         :return: an [N x C x ...] Tensor of outputs.
         """
+
+        # uprava kvuli gflops
+        if timesteps is None:
+            timesteps = th.full((x.shape[0],), 10, dtype=th.long, device=x.device)
+        # END
+
         assert (y is not None) == (
             self.num_classes is not None
         ), "must specify y if and only if the model is class-conditional"
@@ -862,7 +868,7 @@ class UNetModelSwin(nn.Module):
             conv_nd(dims, input_ch, out_channels, 3, padding=1),
         )
 
-    def forward(self, x, timesteps, lq=None, mask=None):
+    def forward(self, x, timesteps=None, lq=None, mask=None):
         """
         Apply the model to an input batch.
         :param x: an [N x C x ...] Tensor of inputs.
@@ -870,6 +876,12 @@ class UNetModelSwin(nn.Module):
         :param lq: an [N x C x ...] Tensor of low quality iamge.
         :return: an [N x C x ...] Tensor of outputs.
         """
+
+        # uprava kvuli gflops
+        if timesteps is None:
+            timesteps = th.full((x.shape[0],), 10, dtype=th.long, device=x.device)
+        # END
+
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels)).type(self.dtype)
 
@@ -1150,7 +1162,7 @@ class UNetModelConv(nn.Module):
             conv_nd(dims, input_ch, out_channels, 3, padding=1),
         )
 
-    def forward(self, x, timesteps, lq=None):
+    def forward(self, x, timesteps=None, lq=None):
         """
         Apply the model to an input batch.
         :param x: an [N x C x ...] Tensor of inputs.
@@ -1158,6 +1170,12 @@ class UNetModelConv(nn.Module):
         :param lq: an [N x C x ...] Tensor of low quality iamge.
         :return: an [N x C x ...] Tensor of outputs.
         """
+
+        # uprava kvuli gflops
+        if timesteps is None:
+            timesteps = th.full((x.shape[0],), 10, dtype=th.long, device=x.device)
+        # END
+
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
 

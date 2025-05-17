@@ -114,6 +114,16 @@ class ResShiftTraining:
 
     def resolve_resume_checkpoint(self):
         if self.configs.resume:
+            # vyres i EMA ckpt, ten se musi stahnout
+            if self.configs.resume_ema_url and self.configs.resume_ema_url.startswith(("http://", "https://")):
+                pth = os.path.dirname(self.configs.ema_resume)
+                if pth:
+                    os.makedirs(pth, exist_ok=True)
+                gdown.download(
+                    self.configs.resume_ema_url, 
+                    self.configs.ema_resume,
+                )
+
             # soubor existuje
             if self.configs.resume.endswith(".pth") and os.path.isfile(self.configs.resume):
                 return
@@ -156,7 +166,12 @@ class ResShiftTraining:
 
             # EMA model
             if hasattr(self, 'ema_rate'):
-                ema_ckpt_path = self.ema_ckpt_dir / ("ema_"+Path(self.configs.resume).name)
+
+                # override: EMA ckpt!
+
+                # ema_ckpt_path = self.ema_ckpt_dir / ("ema_"+Path(self.configs.resume).name)
+                ema_ckpt_path = self.configs.ema_resume
+                
                 self.logger.info(f"=> Loaded EMA checkpoint from {str(ema_ckpt_path)}")
                 ema_ckpt = torch.load(ema_ckpt_path, map_location=f"cuda:{self.rank}")
                 _load_ema_state(self.ema_state, ema_ckpt)

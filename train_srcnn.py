@@ -8,7 +8,7 @@ import ssim
 from torch import nn
 from torchinfo import summary
 from layers import SqrtLoss, ConvLayer
-from models import SRCNN, VGG_Loss, freeze_model, unfreeze_model, SRResNet
+from models.baseline_models import SRCNN, VGG_Loss, freeze_model, unfreeze_model, SRResNet
 from dataset import ImageDataset
 from train import train, compare_images
 

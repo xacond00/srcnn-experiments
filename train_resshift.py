@@ -11,7 +11,7 @@ from einops import rearrange
 from contextlib import nullcontext
 
 from datapipe.base import BaseData
-from .dataset import ImageDataset
+from dataset import ImageDataset
 
 from utils import util_net
 from utils import util_common
@@ -369,10 +369,12 @@ class ResShiftTraining:
         self.logger.info('Loaded Done')
 
     def build_model(self):
-
         params = self.configs.model.get('params', dict)
         model = util_common.get_obj_from_str(self.configs.model.target)(**params)
         model.cuda()
+        # if self.configs.model.ckpt_path is None and self.configs.model.resume:
+        #     self.configs.model.ckpt_path = self.configs.model.resume
+
         if self.configs.model.ckpt_path is not None:
             ckpt_path = self.configs.model.ckpt_path
             self.logger.info(f"Initializing model from {ckpt_path}")

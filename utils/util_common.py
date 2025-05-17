@@ -17,8 +17,6 @@ def mkdir(dir_path, delete=False, parents=True):
         dir_path.mkdir(parents=parents)
 
 def get_obj_from_str(string, reload=False):
-    print(string)
-    exit()
     module, cls = string.rsplit(".", 1)
     if reload:
         module_imp = importlib.import_module(module)

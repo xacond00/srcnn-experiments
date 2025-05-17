@@ -3,7 +3,7 @@ from torch import nn
 import numpy as np
 from torch.utils.data import DataLoader
 from dataset import ImageDataset
-import models
+import models.baseline_models
 import sys
 import os
 

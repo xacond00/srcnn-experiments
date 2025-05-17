@@ -115,6 +115,8 @@ class BaseData(Dataset):
     def __init__(
             self,
             dir_path,
+            data_hr_url=None,
+            data_lr_url=None,
             transform_type='default',
             transform_kwargs={'mean':0.0, 'std':1.0},
             extra_dir_path=None,

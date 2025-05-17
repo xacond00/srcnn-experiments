@@ -196,10 +196,11 @@ class ResShiftTraining:
             if pth:
                 os.makedirs(pth, exist_ok=True)
             zipdoc = os.path.join(data_pth, "data.zip")
-            gdown.download(
-                url, 
-                zipdoc,
-            )
+            if not os.path.isfile(os.path.join(data_pth, "data.zip")):
+                gdown.download(
+                    url,
+                    zipdoc,
+                )
             with zipfile.ZipFile(zipdoc, 'r') as zip_ref:
                 zip_ref.extractall(data_pth)
 

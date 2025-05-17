@@ -1,4 +1,4 @@
-## TODO: EVERYTHING
+## Train srgan from base non gan model
 
 import os
 import io
@@ -66,7 +66,7 @@ beta_max = 0.0025
 beta = 0.0015 # The larger this is, the larger weight discriminator has
 balance_loss = False # Balance discriminator loss (gimp d_lr)
 disc_smooth = 0.5 # Smoothing factor of d_lr
-disc_skip_thr = 0.1 # Dloss threshold for skipping update in batch
+disc_skip_thr = 0.0 #0.1 # Dloss threshold for skipping update in batch
 gen_skip_thr = 0.0 #1.0 # Skip disc gradient update if gen loss surpasses this value
 cont_skip_thr = 0.0 #0.2 if loss_tp == 0 else 0.5 # Skip discriminator update when content loss surpasses
 
@@ -104,7 +104,9 @@ except:
 
 min_loss = 1000000.0 # Minimal loss in network
 start_epoch = 0  # start at this epoch
-iterations = 2000  # number of training iterations
+iterations = 1800  # number of training iterations
+
+
 test_crop = 1024 # Crop of test mode images
 test_downsample = 1
 valid_size = 0 # Validation batch

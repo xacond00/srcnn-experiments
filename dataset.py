@@ -6,7 +6,6 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms import v2
 import torch
-import threading
 import random
 from concurrent.futures import ThreadPoolExecutor
 
@@ -22,7 +21,7 @@ class RandomRotate90(torch.nn.Module):
         return torch.rot90(img, k, dims=(1, 2))
 
 class ImageDataset(Dataset):
-    def __init__(self, dataset_name="DIV2K", train : bool = True, scale : int= 4, downscale : int = 1, crop : int = 1024, cache_size = 'full', pre_crop = None):
+    def __init__(self, dataset_name="DIV2K", train : bool = True, scale : int= 4, downscale : int = 1, crop : int = 1024, cache_size = 'full', pre_crop = None, download_only : bool = False):
         """
         Args:
             dataset_name (str): Either 'DIV2K' or 'Flickr2K'.
@@ -63,6 +62,10 @@ class ImageDataset(Dataset):
         # Ensure dataset is available
         if not os.path.exists(self.dataset_folder):
             self.download_and_extract()
+
+        # if totally custom dataloder such as ResShift, end
+        if download_only:
+            return
 
         self.images = [os.path.join(self.dataset_folder, f) 
                             for f in sorted(os.listdir(self.dataset_folder))

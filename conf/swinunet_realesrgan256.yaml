@@ -1,6 +1,6 @@
 resume_url: https://drive.google.com/uc?id=1NkKH6_G8Z38BsJWQfnIavnO4AxVqBEiJ  # zakomentovat pokud se nema nic stahovat, pokud soubor resume neexistuje v dir, tak se stahne a ulozi jako resume
 resume: ckpts/2000.pth
-ema_resume: resume: ckpts/ema_2000.pth
+ema_resume: ckpts/ema_2000.pth
 resume_ema_url: https://drive.google.com/uc?id=1NkYqAxLyPwH8B1VYb88Y4QeYW8JPkvTn
 save_dir: /content/gdrive/MyDrive/resshift_output/
 
@@ -129,13 +129,15 @@ data:
   val:
     type: base
     params:
-      # dir_path: neni potreba || testdata/Val_SR/lq
-      im_exts: png
+      dir_path: valdata/lr/
+      data_hr_url: https://drive.google.com/uc?id=1Q4wAySkRXIl2FeFR0kZGFTTnV_EvoucQ
+      data_lr_url: https://drive.google.com/uc?id=1-8csgAd-Uy71kWl_86W39UzBpVv6x0Dc
+      im_exts: png 
       transform_type: default
       transform_kwargs:
           mean: 0.5
           std: 0.5
-      extra_dir_path:  # bude prepsano za cestu k HR || testdata/Val_SR/gt
+      extra_dir_path: valdata/hr/
       extra_transform_type: default
       extra_transform_kwargs:
           mean: 0.5

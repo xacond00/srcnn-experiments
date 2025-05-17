@@ -1,5 +1,6 @@
 import os, sys, math, time, random, datetime, functools
 import lpips
+import zipfile
 import gdown
 import numpy as np
 from pathlib import Path
@@ -171,7 +172,7 @@ class ResShiftTraining:
 
                 # ema_ckpt_path = self.ema_ckpt_dir / ("ema_"+Path(self.configs.resume).name)
                 ema_ckpt_path = self.configs.ema_resume
-                
+
                 self.logger.info(f"=> Loaded EMA checkpoint from {str(ema_ckpt_path)}")
                 ema_ckpt = torch.load(ema_ckpt_path, map_location=f"cuda:{self.rank}")
                 _load_ema_state(self.ema_state, ema_ckpt)
@@ -188,6 +189,20 @@ class ResShiftTraining:
         else:
             self.iters_start = 0
 
+    # zpracuj validacni soubory ze serveru
+    def _download_and_extract_val(self, url, data_pth):
+        if url and url.startswith(("http://", "https://")):
+            pth = os.path.dirname(data_pth)
+            if pth:
+                os.makedirs(pth, exist_ok=True)
+            zipdoc = os.path.join(data_pth, "data.zip")
+            gdown.download(
+                url, 
+                zipdoc,
+            )
+            with zipfile.ZipFile(zipdoc, 'r') as zip_ref:
+                zip_ref.extractall(data_pth)
+
     def build_dataloader(self):
         def _wrap_loader(loader):
             while True: yield from loader
@@ -197,26 +212,21 @@ class ResShiftTraining:
             dataset_train = self.configs["train"]["params"]["which_dataset"]
         except KeyError:
             dataset_train = "DIV2K"
-
-        # zajisti data k trenovani a k validaci
-        try:
-            dataset_valid = self.configs["val"]["params"]["which_dataset"]
-        except KeyError:
-            dataset_valid = "DIV2K"
-
         train_set = ImageDataset(
             dataset_name=dataset_train, 
             download_only=True,
         )
-        valid_set = ImageDataset(
-            dataset_name=dataset_valid,
-            download_only=True,
-        )
-
-        # cesty k datum
         self.configs.data["train"]["params"]["dir_paths"] = [train_set.dataset_folder,]
-        # LQ nepotrebujeme self.configs.data["val"]["params"]["dir_path"] =   # lq
-        self.configs.data["val"]["params"]["extra_dir_path"] = valid_set.dataset_folder  # hq
+
+        # pripravena validacni sada, extrahuj
+        self._download_and_extract_val(
+            self.configs.data.val.params.data_lr_url,
+            self.configs.data.val.params.dir_path,
+        )
+        self._download_and_extract_val(
+            self.configs.data.val.params.data_hr_url,
+            self.configs.data.val.params.extra_dir_path,
+        )
         
         # make datasets
         datasets = {}
@@ -757,11 +767,7 @@ class ResShiftTraining:
                 model_kwargs=model_kwargs,
                 noise=noise,
             )
-            if last_batch:
-                losses, z0_pred, z_t = self.backward_step(compute_losses, micro_data, num_grad_accumulate, tt)
-            else:
-                with self.model.no_sync():
-                    losses, z0_pred, z_t = self.backward_step(compute_losses, micro_data, num_grad_accumulate, tt)
+            losses, z0_pred, z_t = self.backward_step(compute_losses, micro_data, num_grad_accumulate, tt)
 
             # make logging
             if last_batch:

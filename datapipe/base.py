@@ -115,7 +115,6 @@ class BaseData(Dataset):
     def __init__(
             self,
             dir_path,
-            txt_path=None,
             transform_type='default',
             transform_kwargs={'mean':0.0, 'std':1.0},
             extra_dir_path=None,
@@ -131,8 +130,6 @@ class BaseData(Dataset):
         file_paths_all = []
         if dir_path is not None:
             file_paths_all.extend(util_common.scan_files_from_folder(dir_path, im_exts, recursive))
-        if txt_path is not None:
-            file_paths_all.extend(util_common.readline_txt(txt_path))
 
         self.file_paths = file_paths_all if length is None else random.sample(file_paths_all, length)
         self.file_paths_all = file_paths_all

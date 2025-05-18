@@ -13,7 +13,7 @@ from einops import rearrange
 from contextlib import nullcontext
 
 from datapipe.base import BaseData
-from ..dataset import ImageDataset
+from dataset import ImageDataset
 
 from utils import util_net
 from utils import util_common

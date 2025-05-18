@@ -20,7 +20,7 @@ from contextlib import nullcontext
 from utils import util_net
 from utils import util_image
 from utils import util_common
-from utils.util_image import ImageSpliterTh, batch_SSIM, calculate_ssim
+from utils.util_image import ImageSpliterTh, batch_SSIM, batch_PSNR
 
 from datapipe.base import BaseData
 
@@ -244,6 +244,9 @@ class ResShiftSampler:
                 drop_last=False,
                 )
 
+        glob_ssim = 0
+        glob_psnr = 0
+
         for data in dataloader:
             micro_batchsize = math.ceil(bs)
             ind_start = self.rank * micro_batchsize
@@ -254,7 +257,6 @@ class ResShiftSampler:
             img = Image.open(path.join(in_gt_path, path.basename(data["path"][0]))).convert("RGB")
             transform = T.Compose([
                 T.ToTensor(),
-                T.Normalize(mean=[0.5]*3, std=[0.5]*3),
             ])
             hr_tensor = transform(img)
             hr_tensor = hr_tensor.unsqueeze(0)
@@ -265,9 +267,15 @@ class ResShiftSampler:
                         )    # b x h x w x c, [0, 1], RGB
 
                 for jj in range(results.shape[0]):
+                    ssim = batch_SSIM(results[jj].unsqueeze(0), hr_tensor)
+                    psnr = batch_PSNR(results[jj].unsqueeze(0), hr_tensor)
+                    print("file: ", micro_data['path'][jj])
+                    print("SSIM: ", ssim)
+                    print("PSNR: ", psnr)
+                    print("=====")
 
-                    print(batch_SSIM(results[jj].unsqueeze(0), hr_tensor))
-                    exit()
+                    glob_ssim += ssim
+                    glob_psnr += psnr
 
                     im_sr = util_image.tensor2img(
                         results[jj], 
@@ -275,12 +283,23 @@ class ResShiftSampler:
                         min_max=(0.0, 1.0),
                     )
 
+                    # DEBUG
+                    im_hr = util_image.tensor2img(
+                        hr_tensor, 
+                        rgb2bgr=True, 
+                        min_max=(0.0, 1.0),
+                    )
+                    im_name = Path(micro_data['path'][jj]).stem
+                    im_path = out_path / f"{im_name}_HR.png"
+                    util_image.imwrite(im_hr, im_path, chn='bgr', dtype_in='uint8')                    
+
                     # zapis vysledny SR obrazek
                     im_name = Path(micro_data['path'][jj]).stem
                     im_path = out_path / f"{im_name}.png"
                     util_image.imwrite(im_sr, im_path, chn='bgr', dtype_in='uint8')
 
-                    exit()
+        print("GLOB PSNR: ", glob_psnr / len(dataloader))
+        print("GLOB_SSIM: ", glob_ssim / len(dataloader))
 
 def get_parser(**parser_kwargs):
     parser = argparse.ArgumentParser(**parser_kwargs)

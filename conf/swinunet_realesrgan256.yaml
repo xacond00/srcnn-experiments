@@ -4,7 +4,7 @@ resume: ~
 # ema_resume: ckpts/ema_2000.pth
 # resume_ema_url: https://drive.google.com/uc?id=1NkYqAxLyPwH8B1VYb88Y4QeYW8JPkvTn
 save_dir: /content/gdrive/MyDrive/resshift_output/
-flops_only: False  # pouze zmeri flops
+flops_only: True  # pouze zmeri flops
 
 model:
   target: models.unet.UNetModelSwin

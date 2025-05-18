@@ -320,8 +320,8 @@ class ResShiftTraining:
                 )
             
             gflops = float(macs.split(' ')[0]) * 2.0 * 1024 * 1024
-            print(f"GFLOPs: {gflops}")
-            print(f"GFLOPS/px: {gflops/self.configs.data.train.params.gt_size**2}")
+            print(f"FLOPs: {gflops}")
+            print(f"FLOPS/px: {gflops/self.configs.data.train.params.gt_size**2}")
             print(f"Parameters: {params}")
 
         # close the tensorboard

@@ -215,7 +215,7 @@ class ResShiftSampler:
             return im_sr_tensor
 
         in_path = Path(in_path) if not isinstance(in_path, Path) else in_path
-        in_gt_path = Path(in_path) if not isinstance(in_gt_path, Path) else in_gt_path
+        in_gt_path = Path(in_gt_path) if not isinstance(in_gt_path, Path) else in_gt_path
         out_path = Path(out_path) if not isinstance(out_path, Path) else out_path
 
         assert in_path.exists()
@@ -266,15 +266,8 @@ class ResShiftSampler:
 
                 for jj in range(results.shape[0]):
 
-                    sr_tensor = results[jj].unsqueeze(0)  # [1, 3, H, W]
-                    print(f"SR tensor shape: {sr_tensor.shape}")
-                    print(f"HR tensor shape: {hr_tensor.shape}")
+                    print(batch_SSIM(results[jj].unsqueeze(0), hr_tensor))
                     exit()
-                    # print(results[jj].unsqueeze(0))
-                    # exit()
-
-                    # print(batch_SSIM(results[jj].unsqueeze(0), hr_tensor))
-                    # exit()
 
                     im_sr = util_image.tensor2img(
                         results[jj], 

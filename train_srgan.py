@@ -13,8 +13,8 @@ import sys
 import math
 from torch import nn
 from torchinfo import summary
-from models.layers import SqrtLoss, ConvLayer, ActivLayer
-from models.baseline_models import SRCNN, VGG_Loss, freeze_model, unfreeze_model, SRResNet, Discriminator
+from layers import SqrtLoss, ConvLayer, ActivLayer
+from baseline_models import SRCNN, VGG_Loss, freeze_model, unfreeze_model, SRResNet, Discriminator
 from dataset import ImageDataset
 from torch.amp import autocast, GradScaler
 from train import train, compare_images

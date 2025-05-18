@@ -1,2 +1,2 @@
-test/4x96maeganh_rc3x16_d8x64b15.pth: PSNR=25.39, SSIM=0.7331
-test/4x96_rc3x16.pth: PSNR=26.48, SSIM=0.7962
+test/4x96maeganh_rc3x16_d8x64b15.pth: PSNR=22.75, SSIM=0.6647
+test/4x96_rc3x16.pth: PSNR=23.80, SSIM=0.7323

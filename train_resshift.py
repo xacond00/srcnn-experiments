@@ -427,8 +427,17 @@ class ResShiftTraining:
         params = self.configs.model.get('params', dict)
         model = util_common.get_obj_from_str(self.configs.model.target)(**params)
         model.cuda()
-        # if self.configs.model.ckpt_path is None and self.configs.model.resume:
-        #     self.configs.model.ckpt_path = self.configs.model.resume
+        
+        # pokud je to potreba, stahni model
+        if self.configs.model.ckpt_path is None and self.configs.model.ckpt_url:
+            if not os.path.isfile(self.configs.model.ckpt_path):
+                pth = os.path.dirname(self.configs.model.ckpt_path)
+                if pth:
+                    os.makedirs(pth, exist_ok=True)
+                gdown.download(
+                    self.configs.model.ckpt_url, 
+                    self.configs.model.ckpt_path,
+                )
 
         if self.configs.model.ckpt_path is not None:
             ckpt_path = self.configs.model.ckpt_path

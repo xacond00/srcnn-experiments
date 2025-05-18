@@ -4,10 +4,13 @@
 /*.pth
 /train
 /gan
+/gan_strip
+/gan_base
 /gan96
 /gan128
 /gan192
 /bad
+/test
 /COCO2017V
 /COCO2017T
 train_srwgan.py

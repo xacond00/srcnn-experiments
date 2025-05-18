@@ -1,3 +1,6 @@
+# Own modification of SrResNet/SRSPCN, xacond00
+# Resnet based on: https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Super-Resolution
+
 import torch
 from torch import nn
 from math import log2

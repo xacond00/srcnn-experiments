@@ -1,3 +1,3 @@
-test/best_4x96maeganh_rc3x16_d6x32b15-25S192.pth: PSNR=24.33, SSIM=0.7518
-test/best_4x96maeganh_rc3x16_d6x32b1525.pth: PSNR=24.50, SSIM=0.7591
-test/best_4x96maeganh_rc3x16_d8x64b15B64.pth: PSNR=24.91, SSIM=0.7712
+test/a_4x96_rc3x16.pth: PSNR=25.53, SSIM=0.7798
+test/b_4x96maeganh_rc3x16_d8x64b15.pth: PSNR=24.60, SSIM=0.7349
+test/c_runet_4x_ssae_50step_noseed.pth: PSNR=23.43, SSIM=0.6876

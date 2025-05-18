@@ -1,3 +1,5 @@
+# Train auxiliary upscaler
+
 import os
 import torch.backends.cudnn as cudnn
 import torch
@@ -11,12 +13,11 @@ from train import train, compare_images
 
 
 
-# Data parameters
+# Model parameters
 scaling_factor = 4  # the scaling factor for the generator; the input LR images will be downsampled from the target HR images by this factor
 kernel_size = 5
 pre_scale = 1
 n_channels = 3  # number of channels in-between, i.e. the input and output channels for the residual and subpixel convolutional blocks
-n_blocks = 16  # number of residual blocks
 
 # Learning parameters
 checkpoint = True  # Load checkpoint
@@ -31,8 +32,8 @@ loss_fns = ['mae', 'vgg', 'mse', 'sqrt', 'ssim']
 loss_tp = 0
 
 ds_train = True # Set dataset to training mode (random crop position)
-batch_size = 8 # batch size
-crop_size = 768
+batch_size = 16 # batch size
+crop_size = 512
 lr = 1e-4  # learning rate
 
 try:

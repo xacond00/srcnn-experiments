@@ -35,7 +35,7 @@ res_blocks = 16 # Number of residual blocks in resnet
 nch = 96 # Number of channels in core layers
 log2_upscale = False
 batch_norm = False
-output_activ = 'tanh'
+output_activ = 'linear'
 
 # You can also input non-gan models as base to be retrained
 base_model = "gan_base/4x96_rc3x16.pth" if 1 else None

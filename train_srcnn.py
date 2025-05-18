@@ -27,7 +27,7 @@ unfreeze = False # Unfreeze all parameters
 test = False # Enable test mode (show output images)
 srresnet = False # Use referential resnet
 srcnn_resnet = True # Use custom resnet
-res_blocks = 24 # Number of residual blocks in resnet
+res_blocks = 16 # Number of residual blocks in resnet
 nch = 96 # Number of channels in core layers
 log2_upscale = False
 batch_norm = False
@@ -44,7 +44,7 @@ Velikost Kanaly Loss _ Konvoluce Kernel x Pocet _ ResKonvoluce Kernel x Pocet . 
 """
 
 base_model = None  # "4x96ssae_c5x2_c3x6.pth"
-aux_name = "base/c5x4.pth"  # Name of auxiliary upscaler network (or classical method like bicubic)
+aux_name = "gan_base/c5x4.pth"  # Name of auxiliary upscaler network (or classical method like bicubic)
 ps_ks = 3 # Pre-Pixel shuffle conv kernel size
 last_ks = 0  # Add post shuffle conv layer (doesnt improve much)
 freeze = False  # Freeze the backbone when appending shuffle conv layer

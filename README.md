@@ -1,11 +1,31 @@
+# KNN Projekt
 RESULTS:
 https://drive.google.com/drive/folders/16FCOaLuFvgzC1v0jG7NbsmuZq_6kACBz?hl=cs
 
-SRCNN upscaling experiments
+## Execution instructions
+### Requirements
 
-Has SRCNN class that allows creation of normal subpixel CNN with:
-1) Residual blocks
-2) Convolutional blocks
-3) Auxiliary upscaler (improves performance)
+Pytorch (CUDA)
+Torchvision
+PIL
+ptflops
+timm
 
-Best performing so far is "c5x64x2_c3x64x5_aux" model with "c5x4" auxiliary upscaler.
+Download gdrive files and place them in this directory
+(`gan_base` for training and `test` for testing) 
+
+### Training
+
+To train auxiliary upscaler run:
+`python train_aux.py`
+To train custom SrResNet upscaler run:
+`python train_srcnn.py`
+To train custom SRGAN upscaler run:
+`python train_srgan.py`
+To train custom RUnet upscaler run:
+`python train_runet.py`
+To train ResShift upscaler see:
+`python rs/README.MD`
+
+### Testing
+

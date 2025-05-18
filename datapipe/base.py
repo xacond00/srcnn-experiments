@@ -46,7 +46,11 @@ def get_transforms(transform_type, kwargs):
         scale, out_shape: for Bicubic
         min_max: tuple or list with length 2, for cliping
     '''
-    if transform_type == 'default':
+    if transform_type == 'none':  # new
+        transform = thv.transforms.Compose([
+                    thv.transforms.ToTensor(),   # c x h x w, [0,1]
+        ])
+    elif transform_type == 'default':
         transform = thv.transforms.Compose([
             thv.transforms.ToTensor(),
             thv.transforms.Normalize(mean=kwargs.get('mean', 0.5), std=kwargs.get('std', 0.5)),

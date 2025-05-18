@@ -318,7 +318,10 @@ class ResShiftTraining:
                     print_per_layer_stat=False, 
                     verbose=False,
                 )
-            print(f"GFLOPs: {float(macs.split(' ')[0]) * 2.0}")
+            
+            gflops = float(macs.split(' ')[0]) * 2.0
+            print(f"GFLOPs: {gflops}")
+            print(f"GFLOPS/px: {gflops/self.configs.data.train.params.gt_size**2}")
             print(f"Parameters: {params}")
 
         # close the tensorboard
@@ -429,7 +432,7 @@ class ResShiftTraining:
         model.cuda()
         
         # pokud je to potreba, stahni model
-        if self.configs.model.ckpt_path is None and self.configs.model.ckpt_url:
+        if self.configs.model.ckpt_path and self.configs.model.ckpt_url:
             if not os.path.isfile(self.configs.model.ckpt_path):
                 pth = os.path.dirname(self.configs.model.ckpt_path)
                 if pth:

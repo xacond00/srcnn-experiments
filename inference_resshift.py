@@ -6,9 +6,12 @@ import argparse
 from pathlib import Path
 from omegaconf import OmegaConf
 import math, random
+from os import path
 
 import torch
 import torch.nn.functional as F
+from PIL import Image
+import torchvision.transforms as T
 
 import numpy as np
 from pathlib import Path
@@ -17,7 +20,7 @@ from contextlib import nullcontext
 from utils import util_net
 from utils import util_image
 from utils import util_common
-from utils.util_image import ImageSpliterTh
+from utils.util_image import ImageSpliterTh, batch_SSIM, calculate_ssim
 
 from datapipe.base import BaseData
 
@@ -131,11 +134,10 @@ class ResShiftSampler:
         for params in net.parameters():
             params.requires_grad = False
 
-    def sample_func(self, y0, noise_repeat=False, mask=False):
+    def sample_func(self, y0, noise_repeat=False):
         '''
         Input:
             y0: n x c x h x w torch tensor, low-quality image, [-1, 1], RGB
-            mask: image mask for inpainting
         Output:
             sample: n x c x h x w, torch tensor, [-1, 1], RGB
         '''
@@ -152,12 +154,7 @@ class ResShiftSampler:
         else:
             flag_pad = False
 
-        if self.configs.model.params.cond_lq and mask is not None:
-            model_kwargs={
-                    'lq':y0,
-                    'mask': mask,
-                    }
-        elif self.configs.model.params.cond_lq:
+        if self.configs.model.params.cond_lq:
             model_kwargs={'lq':y0,}
         else:
             model_kwargs = None
@@ -179,21 +176,18 @@ class ResShiftSampler:
 
         return results.clamp_(-1.0, 1.0)
 
-    def inference(self, in_path, out_path, mask_path=None, mask_back=True, bs=1, noise_repeat=False):
+    def inference(self, in_path, out_path, in_gt_path, bs=1, noise_repeat=False):
 
-        def _process_per_image(im_lq_tensor, mask=None):
+        def _process_per_image(im_lq_tensor):
             '''
             Input:
                 im_lq_tensor: b x c x h x w, torch tensor, [-1, 1], RGB
-                mask: image mask for inpainting, [-1, 1], 1 for unknown area
             Output:
                 im_sr: h x w x c, numpy array, [0,1], RGB
             '''
 
             context = torch.cuda.amp.autocast if self.use_amp else nullcontext
             if im_lq_tensor.shape[2] > self.chop_size or im_lq_tensor.shape[3] > self.chop_size:
-                if mask is not None:
-                    im_lq_tensor = torch.cat([im_lq_tensor, mask], dim=1)
                 im_spliter = ImageSpliterTh(
                         im_lq_tensor,
                         self.chop_size,
@@ -202,15 +196,10 @@ class ResShiftSampler:
                         extra_bs=self.chop_bs,
                         )
                 for im_lq_pch, index_infos in im_spliter:
-                    if mask is not None:
-                        im_lq_pch, mask_pch = im_lq_pch[:, :-1], im_lq_pch[:, -1:,]
-                    else:
-                        mask_pch = None
                     with context():
                         im_sr_pch = self.sample_func(
                                 im_lq_pch,
                                 noise_repeat=noise_repeat,
-                                mask=mask_pch,
                                 )     # 1 x c x h x w, [-1, 1]
                     im_spliter.update(im_sr_pch, index_infos)
                 im_sr_tensor = im_spliter.gather()
@@ -219,83 +208,87 @@ class ResShiftSampler:
                 with context():
                     im_sr_tensor = self.sample_func(
                             im_lq_tensor,
-                            noise_repeat=noise_repeat,
-                            mask=mask,
+                            noise_repeat=noise_repeat
                             )     # 1 x c x h x w, [-1, 1]
 
             im_sr_tensor = im_sr_tensor * 0.5 + 0.5
-            if mask_back and mask is not None:
-                mask = mask * 0.5 + 0.5
-                im_lq_tensor = im_lq_tensor * 0.5 + 0.5
-                im_sr_tensor = im_sr_tensor * mask + im_lq_tensor * (1 - mask)
             return im_sr_tensor
 
         in_path = Path(in_path) if not isinstance(in_path, Path) else in_path
+        in_gt_path = Path(in_path) if not isinstance(in_gt_path, Path) else in_gt_path
         out_path = Path(out_path) if not isinstance(out_path, Path) else out_path
 
         assert in_path.exists()
         if not out_path.exists():
             out_path.mkdir(parents=True)
 
-        if in_path.is_dir():
-            data_config = {'type': 'base',
-                            'params': {'dir_path': str(in_path),
-                                        'transform_type': 'default',
-                                        'transform_kwargs': {
-                                            'mean': 0.5,
-                                            'std': 0.5,
-                                            },
-                                        'need_path': True,
-                                        'recursive': True,
-                                        'length': None,
-                                        }
-                            }
+        data_config = {'type': 'base',
+                        'params': {'dir_path': str(in_path),
+                                    'transform_type': 'default',
+                                    'transform_kwargs': {
+                                        'mean': 0.5,
+                                        'std': 0.5,
+                                        },
+                                    'need_path': True,
+                                    'recursive': True,
+                                    'length': None,
+                                    }
+                        }
 
-            dataset = BaseData(**data_config["params"])
-            self.write_log(f'Found {len(dataset)} images in {in_path}')
-            dataloader = torch.utils.data.DataLoader(
-                    dataset,
-                    batch_size=bs,
-                    shuffle=False,
-                    drop_last=False,
+        dataset = BaseData(**data_config["params"])
+        self.write_log(f'Found {len(dataset)} images in {in_path}')
+        dataloader = torch.utils.data.DataLoader(
+                dataset,
+                batch_size=bs,
+                shuffle=False,
+                drop_last=False,
+                )
+
+        for data in dataloader:
+            micro_batchsize = math.ceil(bs)
+            ind_start = self.rank * micro_batchsize
+            ind_end = ind_start + micro_batchsize
+            micro_data = {key:value[ind_start:ind_end] for key,value in data.items()}
+
+            # nacti GT jako tensor
+            img = Image.open(path.join(in_gt_path, path.basename(data["path"][0]))).convert("RGB")
+            transform = T.Compose([
+                T.ToTensor(),
+                T.Normalize(mean=[0.5]*3, std=[0.5]*3),
+            ])
+            hr_tensor = transform(img)
+            hr_tensor = hr_tensor.unsqueeze(0)
+
+            if micro_data['lq'].shape[0] > 0:
+                results = _process_per_image(
+                        micro_data['lq'].cuda()
+                        )    # b x h x w x c, [0, 1], RGB
+
+                for jj in range(results.shape[0]):
+
+                    print(results[jj].unsqueeze(0))
+                    exit()
+
+                    print(batch_SSIM(results[jj].unsqueeze(0), hr_tensor))
+                    exit()
+
+                    im_sr = util_image.tensor2img(
+                        results[jj], 
+                        rgb2bgr=True, 
+                        min_max=(0.0, 1.0),
                     )
-            for data in dataloader:
-                micro_batchsize = math.ceil(bs)
-                ind_start = self.rank * micro_batchsize
-                ind_end = ind_start + micro_batchsize
-                micro_data = {key:value[ind_start:ind_end] for key,value in data.items()}
 
-                if micro_data['lq'].shape[0] > 0:
-                    results = _process_per_image(
-                            micro_data['lq'].cuda(),
-                            mask=micro_data['mask'].cuda() if 'mask' in micro_data else None,
-                            )    # b x h x w x c, [0, 1], RGB
+                    # zapis vysledny SR obrazek
+                    im_name = Path(micro_data['path'][jj]).stem
+                    im_path = out_path / f"{im_name}.png"
+                    util_image.imwrite(im_sr, im_path, chn='bgr', dtype_in='uint8')
 
-                    for jj in range(results.shape[0]):
-                        im_sr = util_image.tensor2img(results[jj], rgb2bgr=True, min_max=(0.0, 1.0))
-                        im_name = Path(micro_data['path'][jj]).stem
-                        im_path = out_path / f"{im_name}.png"
-                        util_image.imwrite(im_sr, im_path, chn='bgr', dtype_in='uint8')
-        else:
-            im_lq = util_image.imread(in_path, chn='rgb', dtype='float32')  # h x w x c
-            im_lq_tensor = util_image.img2tensor(im_lq).cuda()              # 1 x c x h x w
-            if mask_path is not None:
-                im_mask = util_image.imread(mask_path, chn='gray', dtype='float32')[:,:, None]  # h x w x 1
-                im_mask_tensor = util_image.img2tensor(im_mask).cuda()              # 1 x c x h x w
-
-            im_sr_tensor = _process_per_image(
-                    (im_lq_tensor - 0.5) / 0.5,
-                    mask=(im_mask_tensor - 0.5) / 0.5 if mask_path is not None else None,
-                    )
-
-            im_sr = util_image.tensor2img(im_sr_tensor, rgb2bgr=True, min_max=(0.0, 1.0))
-            im_path = out_path / f"{in_path.stem}.png"
-            util_image.imwrite(im_sr, im_path, chn='bgr', dtype_in='uint8')
-
+                    exit()
 
 def get_parser(**parser_kwargs):
     parser = argparse.ArgumentParser(**parser_kwargs)
     parser.add_argument("-i", "--in_path", type=str, default="", help="Input path.")
+    parser.add_argument("-ig", "--in_gt_path", type=str, default="", help="Input GT path.")
     parser.add_argument("-o", "--out_path", type=str, default="./results", help="Output path.")
     parser.add_argument("--seed", type=int, default=666, help="Random seed.")
     parser.add_argument(
@@ -362,7 +355,7 @@ if __name__ == '__main__':
     resshift_sampler.inference(
             args.in_path,
             args.out_path,
-            mask_path=None,
+            args.in_gt_path,
             bs=1,  # batch size
             noise_repeat=False
             )

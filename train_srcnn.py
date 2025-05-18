@@ -1,3 +1,6 @@
+# Normal ResNet/SRSPCN training
+# xacond00
+
 import os
 import time
 import torch.backends.cudnn as cudnn

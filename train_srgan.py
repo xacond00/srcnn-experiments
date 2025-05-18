@@ -1,4 +1,5 @@
-## Train srgan from base non gan model
+## Train srgan from base non gan model (or from ground up)
+## xacond00
 
 import os
 import io

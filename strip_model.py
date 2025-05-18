@@ -1,3 +1,6 @@
+# Strip everything from pth
+# xacond00
+
 import torch
 from torch import nn
 import numpy as np

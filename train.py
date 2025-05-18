@@ -1,3 +1,6 @@
+# Normal ResNet/SRSPCN training
+# xacond00
+
 import matplotlib.pyplot as plt
 from torch import nn
 import torch

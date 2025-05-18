@@ -6,23 +6,13 @@ import argparse
 from pathlib import Path
 from omegaconf import OmegaConf
 from sampler import ResShiftSampler
-from basicsr.utils.download_util import load_file_from_url
-
-_STEP = {
-    'v2': 15,
-    }
-_LINK = {
-    'v2': 'https://github.com/zsyOAOA/ResShift/releases/download/v2.0/resshift_realsrx4_s15_v2.pth'
-     }
 
 
 def get_parser(**parser_kwargs):
     parser = argparse.ArgumentParser(**parser_kwargs)
     parser.add_argument("-i", "--in_path", type=str, default="", help="Input path.")
     parser.add_argument("-o", "--out_path", type=str, default="./results", help="Output path.")
-    parser.add_argument("--scale", type=int, default=4, help="Scale factor for SR.")
-    parser.add_argument("--seed", type=int, default=12345, help="Random seed.")
-    parser.add_argument("--bs", type=int, default=1, help="Batch size.")
+    parser.add_argument("--seed", type=int, default=666, help="Random seed.")
     parser.add_argument(
             "--chop_size",
             type=int,
@@ -41,41 +31,9 @@ def get_parser(**parser_kwargs):
     return args
 
 def get_configs(args):
-    ckpt_dir = Path('./weights')
-    if not ckpt_dir.exists():
-        ckpt_dir.mkdir()
 
-    if args.version in ['v1', 'v2']:
-        configs = OmegaConf.load('./configs/realsr_swinunet_realesrgan256.yaml')
-    elif args.version == 'v3':
-        configs = OmegaConf.load('./configs/realsr_swinunet_realesrgan256_journal.yaml')
-    else:
-        raise ValueError(f"Unexpected version type: {args.version}")
-    assert args.scale == 4, 'We only support the 4x super-resolution now!'
-    ckpt_url = _LINK[args.version]
-    ckpt_path = ckpt_dir / f'resshift_{args.task}x{args.scale}_s{_STEP[args.version]}_{args.version}.pth'
-    vqgan_url = _LINK['vqgan']
-    vqgan_path = ckpt_dir / f'autoencoder_vq_f4.pth'
-
-    # prepare the checkpoint
-    if not ckpt_path.exists():
-         load_file_from_url(
-            url=ckpt_url,
-            model_dir=ckpt_dir,
-            progress=True,
-            file_name=ckpt_path.name,
-            )
-    if not vqgan_path.exists():
-         load_file_from_url(
-            url=vqgan_url,
-            model_dir=ckpt_dir,
-            progress=True,
-            file_name=vqgan_path.name,
-            )
-
-    configs.model.ckpt_path = str(ckpt_path)
-    configs.diffusion.params.sf = args.scale
-    configs.autoencoder.ckpt_path = str(vqgan_path)
+    # nacti conf
+    configs = OmegaConf.load('configs/swinunet_realesrgan256.yaml')
 
     # save folder
     if not Path(args.out_path).exists():
@@ -101,7 +59,6 @@ def main():
     args = get_parser()
 
     configs, chop_stride = get_configs(args)
-
     resshift_sampler = ResShiftSampler(
             configs,
             sf=args.scale,
@@ -116,7 +73,7 @@ def main():
             args.in_path,
             args.out_path,
             mask_path=None,
-            bs=args.bs,
+            bs=1,  # batch size
             noise_repeat=False
             )
 

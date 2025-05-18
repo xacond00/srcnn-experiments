@@ -1,3 +1,6 @@
+RESULTS:
+https://drive.google.com/drive/folders/16FCOaLuFvgzC1v0jG7NbsmuZq_6kACBz?hl=cs
+
 SRCNN upscaling experiments
 
 Has SRCNN class that allows creation of normal subpixel CNN with:

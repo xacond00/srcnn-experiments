@@ -6,7 +6,7 @@ from torch import nn
 import numpy as np
 from torch.utils.data import DataLoader
 from dataset import ImageDataset
-import baseline_models
+import models
 import sys
 import os
 

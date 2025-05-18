@@ -7,7 +7,7 @@ import ssim
 from torch import nn
 from torchinfo import summary
 from layers import ShufConvLayer, SqrtLoss, UpscalingBlock
-from baseline_models import VGG_Loss
+from models import VGG_Loss
 from dataset import ImageDataset
 from train import train, compare_images
 

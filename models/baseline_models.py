@@ -1,6 +1,6 @@
 # Based on: https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Super-Resolution
 import math
-from layers import *
+from models.layers import *
 import torchvision
 import torch.nn.functional as F
 

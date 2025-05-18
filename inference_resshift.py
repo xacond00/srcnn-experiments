@@ -266,11 +266,15 @@ class ResShiftSampler:
 
                 for jj in range(results.shape[0]):
 
-                    print(results[jj].unsqueeze(0))
+                    sr_tensor = results[jj].unsqueeze(0)  # [1, 3, H, W]
+                    print(f"SR tensor shape: {sr_tensor.shape}")
+                    print(f"HR tensor shape: {hr_tensor.shape}")
                     exit()
+                    # print(results[jj].unsqueeze(0))
+                    # exit()
 
-                    print(batch_SSIM(results[jj].unsqueeze(0), hr_tensor))
-                    exit()
+                    # print(batch_SSIM(results[jj].unsqueeze(0), hr_tensor))
+                    # exit()
 
                     im_sr = util_image.tensor2img(
                         results[jj], 

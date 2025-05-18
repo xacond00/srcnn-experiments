@@ -4,7 +4,6 @@ import torch
 from torch.utils.data import DataLoader
 from torch import nn
 from torchvision import models
-import ssim
 import os
 import random
 import numpy as np
@@ -16,7 +15,7 @@ from train import train
 torch.cuda.empty_cache()
 # === CONFIG ===
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-epochs = 300
+epochs = 210
 batch_size = 4
 lr = 1.0e-4
 grad_clip = 1.0
@@ -25,11 +24,10 @@ scale_factor = 4
 valid_size = 8 # Validation batch
 valid_crop = 128 # Validation crop
 pre_scale = 1 # Prescale in training
-ssim_alpha = 0.5  # Mix mae with vgg
 
 crop_size = 128
 dataset_name = "DIV2K"
-model_save_path = "test.pth"
+model_save_path = "help.pth"
 seed = 42
 
 samples_dir = "samples"
@@ -119,7 +117,6 @@ def main():
     valid_y = []
     for idx in range(valid_size):
         x, y = train_dataset.load_img(idx, scale_factor, pre_scale, valid_crop, False)
-        print(x.size(), y.size())
         valid_x.append(x)
         valid_y.append(y)
     if valid_size:
@@ -130,18 +127,15 @@ def main():
         valid_ds = None
 
     # === LOSS, OPTIMIZER ===
-    # l1_loss_fn = nn.L1Loss(reduction='mean')
-    # perceptual_loss = PerceptualLoss().to(device)
+    l1_loss_fn = nn.L1Loss(reduction='mean')
+    perceptual_loss = PerceptualLoss().to(device)
 
-    # def combined_loss(output, target):
-    #     # print("Shapes ......", output.shape, target.shape)
-    #     return l1_loss_fn(output, target) + 0.003 * perceptual_loss(output, target)
+    def combined_loss(output, target):
+        # print("Shapes ......", output.shape, target.shape)
+        return l1_loss_fn(output, target) + 0.003 * perceptual_loss(output, target)
 
-    # criterion = combined_loss
+    criterion = combined_loss
     # criterion = l1_loss_fn
-
-    criterion = ssim.SSIM(in_channels=3, as_loss=True, mae_alpha=ssim_alpha)
-    criterion.to(device, memory_format=torch.channels_last)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
@@ -171,7 +165,7 @@ def main():
             best_loss = val_loss
             torch.save(model.state_dict(), model_save_path)
             # Save image showcasing training progress
-            save_sample(model, train_dataset, device, epoch, scale_factor, val_loss, model_save_path)
+            # save_sample(model, train_dataset, device, epoch, scale_factor, val_loss, model_save_path)
 
         scheduler.step()
 
